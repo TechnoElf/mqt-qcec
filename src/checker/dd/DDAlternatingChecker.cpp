@@ -40,8 +40,11 @@ void DDAlternatingChecker::initialize() {
 void DDAlternatingChecker::execute() {
   while (!taskManager1.finished() && !taskManager2.finished() && !isDone()) {
     // skip over any SWAP operations
-    taskManager1.applySwapOperations(functionality);
-    taskManager2.applySwapOperations(functionality);
+    if (configuration.application.alternatingScheme !=
+        ApplicationSchemeType::Diff) {
+      taskManager1.applySwapOperations(functionality);
+      taskManager2.applySwapOperations(functionality);
+    }
 
     if (!taskManager1.finished() && !taskManager2.finished()) {
       if (isDone()) {
@@ -53,6 +56,8 @@ void DDAlternatingChecker::execute() {
       if (functionality.p->isIdentity() &&
           (configuration.application.alternatingScheme !=
            ApplicationSchemeType::Lookahead) &&
+          (configuration.application.alternatingScheme !=
+           ApplicationSchemeType::Diff) &&
           gatesAreIdentical()) {
         taskManager1.advanceIterator();
         taskManager2.advanceIterator();

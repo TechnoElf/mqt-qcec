@@ -18,7 +18,8 @@ enum class ApplicationSchemeType {
   OneToOne     = 1,
   Lookahead    = 2,
   GateCost     = 3,
-  Proportional = 4
+  Diff         = 4,
+  Proportional = 5
 };
 
 inline std::string
@@ -32,6 +33,8 @@ toString(const ApplicationSchemeType& applicationScheme) noexcept {
     return "lookahead";
   case ApplicationSchemeType::GateCost:
     return "gate_cost";
+  case ApplicationSchemeType::Diff:
+    return "diff";
   default:
     return "proportional";
   }
@@ -54,8 +57,11 @@ applicationSchemeFromString(const std::string& applicationScheme) noexcept {
       (applicationScheme == "compilation_flow")) {
     return ApplicationSchemeType::GateCost;
   }
-  if ((applicationScheme == "proportional") || (applicationScheme == "4")) {
+  if ((applicationScheme == "diff") || (applicationScheme == "4")) {
     return ApplicationSchemeType::Proportional;
+  }
+  if ((applicationScheme == "proportional") || (applicationScheme == "5")) {
+    return ApplicationSchemeType::Diff;
   }
   std::cerr << "Unknown application scheme: " << applicationScheme
             << ". Defaulting to proportional!\n";

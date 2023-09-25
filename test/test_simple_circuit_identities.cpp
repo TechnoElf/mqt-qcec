@@ -32,6 +32,7 @@ protected:
     config.optimizations.fuseSingleQubitGates = false;
     config.optimizations.reorderOperations    = false;
     config.execution.runZXChecker             = true;
+
     EXPECT_NO_THROW(ecm = std::make_unique<ec::EquivalenceCheckingManager>(
                         qcOriginal, qcAlternative, config););
   }
@@ -155,6 +156,19 @@ TEST_P(SimpleCircuitIdentitiesTest, GateCostApplicationScheme) {
   ecm->setSimulationChecker(false);
   ecm->setAlternatingApplicationScheme(ec::ApplicationSchemeType::GateCost);
   ecm->setGateCostFunction(&ec::legacyCostFunction);
+  EXPECT_NO_THROW(ecm->run(););
+
+  EXPECT_TRUE(ecm->getResults().consideredEquivalent());
+}
+
+TEST_P(SimpleCircuitIdentitiesTest, DiffApplicationScheme) {
+  ecm->setAlternatingChecker(true);
+  ecm->setSimulationChecker(false);
+  ecm->setConstructionChecker(false);
+  ecm->setZXChecker(false);
+  ecm->setParallel(false);
+  ecm->setAlternatingApplicationScheme(ec::ApplicationSchemeType::Diff);
+
   EXPECT_NO_THROW(ecm->run(););
 
   EXPECT_TRUE(ecm->getResults().consideredEquivalent());

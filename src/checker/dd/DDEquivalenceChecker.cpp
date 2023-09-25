@@ -7,6 +7,7 @@
 
 #include "CircuitOptimizer.hpp"
 #include "checker/dd/DDPackageConfigs.hpp"
+#include "checker/dd/applicationscheme/DiffApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/GateCostApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/LookaheadApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/OneToOneApplicationScheme.hpp"
@@ -250,6 +251,10 @@ void DDEquivalenceChecker<DDType, Config>::initializeApplicationScheme(
               taskManager1, taskManager2,
               configuration.application.costFunction);
     }
+    break;
+  case ApplicationSchemeType::Diff:
+    applicationScheme = std::make_unique<DiffApplicationScheme<DDType, Config>>(
+        taskManager1, taskManager2);
     break;
   default:
     applicationScheme =
