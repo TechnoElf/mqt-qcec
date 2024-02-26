@@ -169,3 +169,6 @@ Thumbs.db
 /docs/**/build
 .vs
 out/build
+
+# nix
+.direnv

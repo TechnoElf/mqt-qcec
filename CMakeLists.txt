@@ -20,8 +20,9 @@ macro(CHECK_SUBMODULE_PRESENT modulename)
 endmacro()
 
 check_submodule_present(mqt-core)
+check_submodule_present(benchmark)
 
-option(BUILD_MQT_QCEC_BINDINGS "Build the MQT QCEC Python bindings" OFF)
+option(BUILD_MQT_QCEC_BINDINGS "Build the MQT QCEC Python bindings" ON)
 if(BUILD_MQT_QCEC_BINDINGS)
   # ensure that the BINDINGS option is set
   set(BINDINGS
@@ -53,4 +54,10 @@ if(BUILD_MQT_QCEC_TESTS)
   enable_testing()
   include(GoogleTest)
   add_subdirectory(test)
+endif()
+
+option(BUILD_MQT_QCEC_BENCH "Build benchmarks for the MQT QCEC project" ON)
+if(BUILD_MQT_QCEC_BENCH)
+  enable_testing()
+  add_subdirectory(bench)
 endif()
