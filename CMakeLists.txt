@@ -6,7 +6,7 @@ project(
   LANGUAGES CXX
   DESCRIPTION "MQT QCEC - A tool for Quantum Circuit Equivalence Checking")
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 # check whether `modulename` is correctly cloned in the `extern` directory.
 macro(CHECK_SUBMODULE_PRESENT modulename)

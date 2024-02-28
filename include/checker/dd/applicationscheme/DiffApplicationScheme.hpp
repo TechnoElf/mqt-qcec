@@ -20,42 +20,13 @@ public:
   }
 
   std::pair<size_t, size_t> operator()() noexcept override {
-    int64_t dx = path[index + 1].first - path[index].first;
-    int64_t dy = path[index + 1].second - path[index].second;
-    index += 1;
-
-    return {dx, dy};
+    index++;
+    return path[index - 1];
   }
 
 private:
   std::vector<std::pair<int64_t, int64_t>> path;
-  size_t                                   index;
-
-  void printVec(const std::vector<int64_t>& vec) {
-    std::cout << "[";
-    if (vec.size() > 0) {
-      std::cout << vec[0];
-      for (size_t i = 1; i < vec.size(); i++) {
-        std::cout << ", " << vec[i];
-      }
-    }
-    std::cout << "]";
-  }
-
-  void printVec(const std::vector<std::pair<int64_t, int64_t>>& vec) {
-    std::cout << "[";
-    if (vec.size() > 0) {
-      std::cout << "\n"
-                << "  (" << vec[0].first << ", " << vec[0].second << ")";
-      for (size_t i = 1; i < vec.size(); i++) {
-        std::cout << ", "
-                  << "\n"
-                  << "  (" << vec[i].first << ", " << vec[i].second << ")";
-      }
-      std::cout << "\n";
-    }
-    std::cout << "]";
-  }
+  size_t                                   index = 0;
 
   bool isMatchPoint(size_t x, size_t y) {
     auto circ1 = this->taskManager1.getCircuit();
@@ -82,8 +53,9 @@ private:
     int64_t snake_end_x           = -1;
     int64_t snake_end_y           = -1;
 
-    for (int64_t operations = 0; operations < max; operations++) {
-      for (int64_t diagonal = -operations; diagonal <= operations;
+    for (int64_t operations = 0; operations <= max; operations++) {
+      for (int64_t diagonal = -(operations - 2 * std::max(0L, operations - n));
+           diagonal <= (operations - 2 * std::max(0L, operations - m));
            diagonal += 2) {
         if (diagonal == -operations) {
           best_x_forward[max + diagonal] = best_x_forward[max + diagonal + 1];
@@ -124,7 +96,8 @@ private:
         break;
       }
 
-      for (int64_t diagonal = -operations; diagonal <= operations;
+      for (int64_t diagonal = -(operations - 2 * std::max(0L, operations - n));
+           diagonal <= (operations - 2 * std::max(0L, operations - m));
            diagonal += 2) {
         if (diagonal == -operations) {
           best_x_backward[max + diagonal] = best_x_backward[max + diagonal + 1];
@@ -238,15 +211,13 @@ private:
       }
     }
 
-    /*
-    for (size_t i = 0; i < result.size() - 1; ++i) {
+    /*for (size_t i = 0; i < result.size() - 1; ++i) {
         if ((result[i].first == 0 && result[i + 1].second == 0) || (result[i +
     1].first == 0 && result[i].second == 0)) { result[i] =
     std::pair(result[i].first + result[i + 1].first, result[i].second + result[i
     + 1].second); result.erase(result.begin() + i + 1); i--;
         }
-    }
-    */
+    }*/
 
     return result;
   }
