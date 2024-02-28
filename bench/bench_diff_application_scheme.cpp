@@ -1,158 +1,138 @@
 #include "EquivalenceCheckingManager.hpp"
 #include "benchmark/benchmark.h"
 
-static void EquivalentDeutschProportional(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Proportional;
-
-  qc1.import("./circuits/dj_mapped_ibm_washington_qiskit_opt0_8.qasm");
-  qc2.import("./circuits/dj_mapped_ibm_washington_qiskit_opt3_8.qasm");
-
-  for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
-    ecm.run();
-  }
-}
-BENCHMARK(EquivalentDeutschProportional);
+const ec::Configuration CONFIG = {
+    {dd::RealNumber::eps, true,
+     std::max(2U, std::thread::hardware_concurrency()), 0.0, false, false, true,
+     false},
+    {false, false, false, false, false, false},
+    {},
+    {},
+    {},
+    {}};
 
 static void EquivalentDeutschDiff(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Diff;
-
-  qc1.import("./circuits/dj_mapped_ibm_washington_qiskit_opt0_8.qasm");
-  qc2.import("./circuits/dj_mapped_ibm_washington_qiskit_opt3_8.qasm");
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Diff;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/dj_nativegates_ibm_qiskit_opt0_8.qasm");
+  qc2.import("./circuits/dj_nativegates_ibm_qiskit_opt3_8.qasm");
 
   for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
     ecm.run();
   }
 }
 BENCHMARK(EquivalentDeutschDiff);
 
-static void EquivalentGroverProportional(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Proportional;
-
-  qc1.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt0_8.qasm");
-  qc2.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+static void EquivalentDeutschProportional(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Proportional;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/dj_nativegates_ibm_qiskit_opt0_8.qasm");
+  qc2.import("./circuits/dj_nativegates_ibm_qiskit_opt3_8.qasm");
 
   for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
     ecm.run();
   }
 }
-BENCHMARK(EquivalentGroverProportional);
+BENCHMARK(EquivalentDeutschProportional);
 
 static void EquivalentGroverDiff(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Diff;
-
-  qc1.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt0_8.qasm");
-  qc2.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Diff;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import(
+      "./circuits/grover-noancilla_nativegates_ibm_qiskit_opt0_8.qasm");
+  qc2.import(
+      "./circuits/grover-noancilla_nativegates_ibm_qiskit_opt3_8.qasm");
 
   for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
     ecm.run();
   }
 }
 BENCHMARK(EquivalentGroverDiff);
 
-static void EquivalentGroverFullProportional(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Proportional;
-
-  qc1.import("./circuits/grover-noancilla_indep_qiskit_8.qasm");
-  qc2.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+static void EquivalentGroverProportional(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Proportional;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import(
+      "./circuits/grover-noancilla_nativegates_ibm_qiskit_opt0_8.qasm");
+  qc2.import(
+      "./circuits/grover-noancilla_nativegates_ibm_qiskit_opt3_8.qasm");
 
   for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
+    ecm.run();
+  }
+}
+BENCHMARK(EquivalentGroverProportional);
+
+static void EquivalentGroverFullDiff(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Diff;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/grover-noancilla_indep_qiskit_8.qasm");
+  qc2.import(
+      "./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+
+  for (auto _ : state) {
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
+    ecm.run();
+  }
+}
+BENCHMARK(EquivalentGroverFullDiff);
+
+static void EquivalentGroverFullProportional(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Proportional;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/grover-noancilla_indep_qiskit_8.qasm");
+  qc2.import(
+      "./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+
+  for (auto _ : state) {
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
     ecm.run();
   }
 }
 BENCHMARK(EquivalentGroverFullProportional);
 
-static void EquivalentGroverFullDiff(benchmark::State& state) {
-  std::size_t            nqubits = 1U;
-  qc::QuantumComputation qc1     = qc::QuantumComputation(nqubits);
-  qc::QuantumComputation qc2     = qc::QuantumComputation(nqubits);
-  ec::Configuration      config{};
-
-  config.functionality.traceThreshold       = 1e-2;
-  config.optimizations.fuseSingleQubitGates = false;
-  config.optimizations.reorderOperations    = false;
-  config.optimizations.reconstructSWAPs     = false;
-  config.execution.runSimulationChecker     = false;
-  config.execution.runAlternatingChecker    = true;
-  config.execution.runConstructionChecker   = false;
-  config.execution.runZXChecker             = false;
-  config.application.alternatingScheme      = ec::ApplicationSchemeType::Diff;
-
-  qc1.import("./circuits/grover-noancilla_indep_qiskit_8.qasm");
-  qc2.import("./circuits/grover-noancilla_mapped_ibm_washington_qiskit_opt3_8.qasm");
+static void EquivalentShorDiff(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Diff;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/shor_15_4_nativegates_ibm_qiskit_opt0_18.qasm");
+  qc2.import("./circuits/shor_15_4_nativegates_ibm_qiskit_opt2_18.qasm");
 
   for (auto _ : state) {
-    ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
     ecm.run();
   }
 }
-BENCHMARK(EquivalentGroverFullDiff);
+BENCHMARK(EquivalentShorDiff);
+
+static void EquivalentShorProportional(benchmark::State& state) {
+  ec::Configuration c             = CONFIG;
+  c.application.alternatingScheme = ec::ApplicationSchemeType::Proportional;
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
+  qc1.import("./circuits/shor_15_4_nativegates_ibm_qiskit_opt0_18.qasm");
+  qc2.import("./circuits/shor_15_4_nativegates_ibm_qiskit_opt2_18.qasm");
+
+  for (auto _ : state) {
+    ec::EquivalenceCheckingManager ecm(qc1, qc2, c);
+    ecm.run();
+  }
+}
+BENCHMARK(EquivalentShorProportional);
