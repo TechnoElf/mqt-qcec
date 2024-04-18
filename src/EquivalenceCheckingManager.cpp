@@ -388,6 +388,7 @@ void EquivalenceCheckingManager::checkSequential() {
       // if the alternating check produces a result, this is final
       if (result != EquivalenceCriterion::NoInformation) {
         results.equivalence = result;
+        results.peakUniqueTableSize = dynamic_cast<const DDAlternatingChecker*>(&*alternatingChecker)->peakUniqueTableSize();
 
         // everything is done
         done = true;
@@ -635,10 +636,17 @@ void EquivalenceCheckingManager::checkParallel() {
 
     // the alternating and the construction checker provide definitive answers
     // once they finish
-    if ((dynamic_cast<const DDAlternatingChecker*>(checker) != nullptr) ||
-        (dynamic_cast<const DDConstructionChecker*>(checker) != nullptr)) {
+    if (dynamic_cast<const DDAlternatingChecker*>(checker) != nullptr) {
       setAndSignalDone();
       results.equivalence = result;
+      results.peakUniqueTableSize = dynamic_cast<const DDAlternatingChecker*>(checker)->peakUniqueTableSize();
+      break;
+    }
+
+    if (dynamic_cast<const DDConstructionChecker*>(checker) != nullptr) {
+      setAndSignalDone();
+      results.equivalence = result;
+      results.peakUniqueTableSize = dynamic_cast<const DDConstructionChecker*>(checker)->peakUniqueTableSize();
       break;
     }
 

@@ -34,6 +34,10 @@ public:
 
   void json(nlohmann::json& j) const noexcept override;
 
+  [[nodiscard]] size_t peakUniqueTableSize() const {
+    return dd->mUniqueTable.getStats().peakEntryCount + dd->vUniqueTable.getStats().peakEntryCount + dd->dUniqueTable.getStats().peakEntryCount + dd->cUniqueTable.getStats().peakEntryCount;
+  }
+
 protected:
   using DDPackage = typename dd::Package<Config>;
 

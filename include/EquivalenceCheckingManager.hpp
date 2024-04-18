@@ -56,6 +56,7 @@ public:
     std::size_t performedInstantiations = 0U;
 
     nlohmann::json checkerResults = nlohmann::json::array();
+    std::size_t peakUniqueTableSize = 0U;
 
     [[nodiscard]] bool consideredEquivalent() const {
       switch (equivalence) {
