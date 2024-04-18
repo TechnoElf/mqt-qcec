@@ -5,14 +5,27 @@
 
 #include "EquivalenceCheckingManager.hpp"
 
+#include "CircuitOptimizer.hpp"
+#include "Definitions.hpp"
 #include "EquivalenceCriterion.hpp"
+#include "checker/dd/DDAlternatingChecker.hpp"
+#include "checker/dd/DDConstructionChecker.hpp"
+#include "checker/dd/DDSimulationChecker.hpp"
+#include "checker/dd/simulation/StateType.hpp"
+#include "checker/zx/ZXChecker.hpp"
 #include "zx/FunctionalityConstruction.hpp"
 
 #include <cassert>
+#include <chrono>
+#include <cstddef>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace ec {
 void EquivalenceCheckingManager::setupAncillariesAndGarbage() {
@@ -122,19 +135,36 @@ void EquivalenceCheckingManager::runOptimizationPasses() {
     }
   }
 
-  if (configuration.optimizations.removeDiagonalGatesBeforeMeasure) {
-    qc::CircuitOptimizer::removeDiagonalGatesBeforeMeasure(qc1);
-    qc::CircuitOptimizer::removeDiagonalGatesBeforeMeasure(qc2);
-  }
-
+  // first, make sure any potential SWAPs are reconstructed
   if (configuration.optimizations.reconstructSWAPs) {
     qc::CircuitOptimizer::swapReconstruction(qc1);
     qc::CircuitOptimizer::swapReconstruction(qc2);
   }
 
+  // then, optionally backpropagate the output permutation
+  if (configuration.optimizations.backpropagateOutputPermutation) {
+    qc::CircuitOptimizer::backpropagateOutputPermutation(qc1);
+    qc::CircuitOptimizer::backpropagateOutputPermutation(qc2);
+  }
+
+  // based on the above, all SWAPs should be reconstructed and accounted for,
+  // so we can elide them.
+  if (configuration.optimizations.elidePermutations) {
+    qc::CircuitOptimizer::elidePermutations(qc1);
+    qc::CircuitOptimizer::elidePermutations(qc2);
+  }
+
+  // fuse consecutive single qubit gates into compound operations (includes some
+  // simple cancellation rules).
   if (configuration.optimizations.fuseSingleQubitGates) {
     qc::CircuitOptimizer::singleQubitGateFusion(qc1);
     qc::CircuitOptimizer::singleQubitGateFusion(qc2);
+  }
+
+  // optionally remove diagonal gates before measurements
+  if (configuration.optimizations.removeDiagonalGatesBeforeMeasure) {
+    qc::CircuitOptimizer::removeDiagonalGatesBeforeMeasure(qc1);
+    qc::CircuitOptimizer::removeDiagonalGatesBeforeMeasure(qc2);
   }
 
   if (configuration.optimizations.reorderOperations) {
@@ -149,11 +179,30 @@ void EquivalenceCheckingManager::runOptimizationPasses() {
 }
 
 void EquivalenceCheckingManager::run() {
-  done                = false;
+  done = false;
+
+  results.name1      = qc1.getName();
+  results.name2      = qc2.getName();
+  results.numQubits1 = qc1.getNqubits();
+  results.numQubits2 = qc2.getNqubits();
+  results.numGates1  = qc1.getNops();
+  results.numGates2  = qc2.getNops();
+
+  results.configuration = configuration;
+
   results.equivalence = EquivalenceCriterion::NoInformation;
+
+  const bool garbageQubitsPresent =
+      qc1.getNgarbageQubits() > 0 || qc2.getNgarbageQubits() > 0;
 
   if (!configuration.anythingToExecute()) {
     std::clog << "Nothing to be executed. Check your configuration!\n";
+    return;
+  }
+
+  if (qc1.empty() && qc2.empty()) {
+    results.equivalence = EquivalenceCriterion::Equivalent;
+    done                = true;
     return;
   }
 
@@ -168,16 +217,30 @@ void EquivalenceCheckingManager::run() {
   } else {
     checkSymbolic();
   }
+
+  for (const auto& checker : checkers) {
+    nlohmann::json j{};
+    checker->json(j);
+    results.checkerResults.emplace_back(j);
+  }
+
+  if (!configuration.functionality.checkPartialEquivalence &&
+      garbageQubitsPresent &&
+      equivalence() == EquivalenceCriterion::NotEquivalent) {
+    std::clog << "[QCEC] Warning: at least one of the circuits has garbage "
+                 "qubits, but partial equivalence checking is turned off. In "
+                 "order to take into account the garbage qubits, enable partial"
+                 " equivalence checking. Consult the documentation for more"
+                 "information.\n";
+  }
 }
 
 EquivalenceCheckingManager::EquivalenceCheckingManager(
+    // Circuits not passed by value and moved because this would cause slicing.
+    // NOLINTNEXTLINE(modernize-pass-by-value)
     const qc::QuantumComputation& circ1, const qc::QuantumComputation& circ2,
     Configuration config)
-    : qc1(circ1.size() > circ2.size() ? circ2.clone() : circ1.clone()),
-      qc2(circ1.size() > circ2.size() ? circ1.clone() : circ2.clone()),
-      configuration(std::move(config)) {
-  // clones both circuits (the circuit with fewer gates always gets to be qc1)
-
+    : qc1(circ1), qc2(circ2), configuration(std::move(config)) {
   const auto start = std::chrono::steady_clock::now();
 
   // set numeric tolerance used throughout the check
@@ -721,31 +784,13 @@ void EquivalenceCheckingManager::checkSymbolic() {
   }
 }
 
-nlohmann::json EquivalenceCheckingManager::json() const {
-  nlohmann::json res{};
-
-  addCircuitDescription(qc1, res["circuit1"]);
-  addCircuitDescription(qc2, res["circuit2"]);
-  res["configuration"] = configuration.json();
-  res["results"]       = results.json();
-
-  if (!checkers.empty()) {
-    res["checkers"]      = nlohmann::json::array();
-    auto& checkerResults = res["checkers"];
-    for (const auto& checker : checkers) {
-      nlohmann::json j{};
-      checker->json(j);
-      checkerResults.push_back(j);
-    }
-  }
-  return res;
-}
 void EquivalenceCheckingManager::runFixOutputPermutationMismatch() {
   if (!configuration.optimizations.fixOutputPermutationMismatch) {
     fixOutputPermutationMismatch();
     configuration.optimizations.fixOutputPermutationMismatch = true;
   }
 }
+
 void EquivalenceCheckingManager::fuseSingleQubitGates() {
   if (!configuration.optimizations.fuseSingleQubitGates) {
     qc::CircuitOptimizer::singleQubitGateFusion(qc1);
@@ -753,6 +798,7 @@ void EquivalenceCheckingManager::fuseSingleQubitGates() {
     configuration.optimizations.fuseSingleQubitGates = true;
   }
 }
+
 void EquivalenceCheckingManager::reconstructSWAPs() {
   if (!configuration.optimizations.reconstructSWAPs) {
     qc::CircuitOptimizer::swapReconstruction(qc1);
@@ -760,6 +806,7 @@ void EquivalenceCheckingManager::reconstructSWAPs() {
     configuration.optimizations.reconstructSWAPs = true;
   }
 }
+
 void EquivalenceCheckingManager::reorderOperations() {
   if (!configuration.optimizations.reorderOperations) {
     qc::CircuitOptimizer::reorderOperations(qc1);
@@ -767,8 +814,38 @@ void EquivalenceCheckingManager::reorderOperations() {
     configuration.optimizations.reorderOperations = true;
   }
 }
+
+void EquivalenceCheckingManager::backpropagateOutputPermutation() {
+  if (!configuration.optimizations.backpropagateOutputPermutation) {
+    qc::CircuitOptimizer::backpropagateOutputPermutation(qc1);
+    qc::CircuitOptimizer::backpropagateOutputPermutation(qc2);
+    configuration.optimizations.backpropagateOutputPermutation = true;
+  }
+}
+
+void EquivalenceCheckingManager::elidePermutations() {
+  if (!configuration.optimizations.elidePermutations) {
+    qc::CircuitOptimizer::elidePermutations(qc1);
+    qc::CircuitOptimizer::elidePermutations(qc2);
+    configuration.optimizations.elidePermutations = true;
+  }
+}
+
 nlohmann::json EquivalenceCheckingManager::Results::json() const {
   nlohmann::json res{};
+
+  auto& circuit1         = res["circuit1"];
+  circuit1["name"]       = name1;
+  circuit1["num_qubits"] = numQubits1;
+  circuit1["num_gates"]  = numGates1;
+
+  auto& circuit2         = res["circuit2"];
+  circuit2["name"]       = name2;
+  circuit2["num_qubits"] = numQubits2;
+  circuit2["num_gates"]  = numGates2;
+
+  res["configuration"] = configuration.json();
+
   res["preprocessing_time"] = preprocessingTime;
   res["check_time"]         = checkTime;
   res["equivalence"]        = ec::toString(equivalence);
@@ -793,6 +870,8 @@ nlohmann::json EquivalenceCheckingManager::Results::json() const {
   }
   auto& par                       = res["parameterized"];
   par["performed_instantiations"] = performedInstantiations;
+
+  res["checkers"] = checkerResults;
 
   return res;
 }

@@ -5,17 +5,29 @@
 
 #include "checker/dd/DDAlternatingChecker.hpp"
 
+#include "Definitions.hpp"
+#include "EquivalenceCriterion.hpp"
+#include "checker/dd/DDEquivalenceChecker.hpp"
+#include "checker/dd/applicationscheme/ApplicationScheme.hpp"
+
+#include <cassert>
+#include <cstddef>
+#include <nlohmann/json.hpp>
+#include <stdexcept>
+#include <type_traits>
+#include <vector>
+
 namespace ec {
 void DDAlternatingChecker::initialize() {
   DDEquivalenceChecker::initialize();
   // create the full identity matrix
-  functionality = dd->makeIdent(nqubits);
+  functionality = dd->makeIdent();
   dd->incRef(functionality);
 
   // Only count ancillaries that are present in but not acted upon in both of
   // the circuits. Otherwise, the alternating checker must not be used.
   // Counter-example: H |0><0| H^-1 = [[0.5, 0.5], [0.5, 0.5]] != |0><0|
-  if (!canHandle(qc1, qc2)) {
+  if (!canHandle(*qc1, *qc2)) {
     throw std::invalid_argument(
         "Alternating checker must not be used for "
         "circuits that both have non-idle ancillary "
@@ -25,7 +37,7 @@ void DDAlternatingChecker::initialize() {
   std::vector<bool> ancillary(nqubits);
   for (qc::Qubit q = 0U; q < nqubits; ++q) {
     ancillary[static_cast<std::size_t>(q)] =
-        qc1.logicalQubitIsAncillary(q) && qc2.logicalQubitIsAncillary(q);
+        qc1->logicalQubitIsAncillary(q) && qc2->logicalQubitIsAncillary(q);
   }
 
   // reduce the ancillary qubit contributions
@@ -46,14 +58,10 @@ void DDAlternatingChecker::execute() {
       taskManager2.applySwapOperations(functionality);
     }
 
-    if (!taskManager1.finished() && !taskManager2.finished()) {
-      if (isDone()) {
-        return;
-      }
-
+    if (!taskManager1.finished() && !taskManager2.finished() && !isDone()) {
       // whenever the current functionality resembles the identity, identical
       // gates on both sides cancel
-      if (functionality.p->isIdentity() &&
+      if (functionality.isIdentity() &&
           (configuration.application.alternatingScheme !=
            ApplicationSchemeType::Lookahead) &&
           (configuration.application.alternatingScheme !=
@@ -67,70 +75,55 @@ void DDAlternatingChecker::execute() {
       const auto [apply1, apply2] = (*applicationScheme)();
 
       // advance both tasks correspondingly
-      if (isDone()) {
-        return;
+      if (!isDone()) {
+        taskManager1.advance(functionality, apply1);
       }
-      taskManager1.advance(functionality, apply1);
-      if (isDone()) {
-        return;
+      if (!isDone()) {
+        taskManager2.advance(functionality, apply2);
       }
-      taskManager2.advance(functionality, apply2);
     }
   }
 }
 
 void DDAlternatingChecker::finish() {
   taskManager1.finish(functionality);
-  if (isDone()) {
-    return;
+  if (!isDone()) {
+    taskManager2.finish(functionality);
   }
-  taskManager2.finish(functionality);
 }
 
 void DDAlternatingChecker::postprocess() {
   // ensure that the permutations that were tracked throughout the circuit match
   // the expected output permutations
   taskManager1.changePermutation(functionality);
-  if (isDone()) {
-    return;
-  }
-  taskManager2.changePermutation(functionality);
-  if (isDone()) {
-    return;
-  }
-
-  // sum up the contributions of garbage qubits
-  taskManager1.reduceGarbage(functionality);
-  if (isDone()) {
-    return;
-  }
-  taskManager2.reduceGarbage(functionality);
-  if (isDone()) {
-    return;
+  if (!isDone()) {
+    taskManager2.changePermutation(functionality);
   }
 }
 
 EquivalenceCriterion DDAlternatingChecker::checkEquivalence() {
-  // create the full identity matrix
-  auto goalMatrix = dd->makeIdent(nqubits);
-  dd->incRef(goalMatrix);
+  std::vector<bool> garbage(nqubits);
+  for (qc::Qubit q = 0U; q < nqubits; ++q) {
+    garbage[static_cast<std::size_t>(q)] =
+        qc1->logicalQubitIsGarbage(q) && qc2->logicalQubitIsGarbage(q);
+  }
+  const bool isClose =
+      configuration.functionality.checkPartialEquivalence
+          ? dd->isCloseToIdentity(functionality,
+                                  configuration.functionality.traceThreshold,
+                                  garbage, false)
+          : dd->isCloseToIdentity(functionality,
+                                  configuration.functionality.traceThreshold);
 
-  // account for any garbage
-  taskManager1.reduceGarbage(goalMatrix);
-  taskManager2.reduceGarbage(goalMatrix);
-
-  taskManager1.reduceAncillae(goalMatrix);
-  taskManager2.reduceAncillae(goalMatrix);
-
-  // the resulting goal matrix is
-  // [1 0] if the qubit is no ancillary
-  // [0 1]
-  //
-  // [1 0] (= |0><0>|) for an ancillary that is present in either circuit
-  // [0 0]
-
-  // compare the obtained functionality to the goal matrix
-  return equals(functionality, goalMatrix);
+  if (isClose) {
+    // whenever the top edge weight is not one, both decision diagrams are only
+    // equivalent up to a global phase
+    if (!functionality.w.approximatelyEquals(dd::Complex::one())) {
+      return EquivalenceCriterion::EquivalentUpToGlobalPhase;
+    }
+    return EquivalenceCriterion::Equivalent;
+  }
+  return EquivalenceCriterion::NotEquivalent;
 }
 
 [[nodiscard]] bool DDAlternatingChecker::gatesAreIdentical() const {
@@ -172,6 +165,11 @@ bool DDAlternatingChecker::canHandle(const qc::QuantumComputation& qc1,
     }
   }
   return true;
+}
+
+void DDAlternatingChecker::json(nlohmann::json& j) const noexcept {
+  DDEquivalenceChecker::json(j);
+  j["checker"] = "decision_diagram_alternating";
 }
 
 } // namespace ec

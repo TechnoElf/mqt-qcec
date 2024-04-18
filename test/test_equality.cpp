@@ -12,11 +12,8 @@
 
 class EqualityTest : public testing::Test {
   void SetUp() override {
-    qc1                                       = qc::QuantumComputation(nqubits);
-    qc2                                       = qc::QuantumComputation(nqubits);
-    config.optimizations.fuseSingleQubitGates = false;
-    config.optimizations.reorderOperations    = false;
-    config.optimizations.reconstructSWAPs     = false;
+    qc1 = qc::QuantumComputation(nqubits);
+    qc2 = qc::QuantumComputation(nqubits);
 
     config.execution.runSimulationChecker   = false;
     config.execution.runAlternatingChecker  = false;
@@ -48,17 +45,43 @@ TEST_F(EqualityTest, GlobalPhase) {
             ec::EquivalenceCriterion::EquivalentUpToGlobalPhase);
 }
 
+/**
+ * @brief The following is a regression test for
+ * https://github.com/cda-tum/mqt-qcec/issues/347
+ */
+TEST_F(EqualityTest, GlobalPhaseSimulation) {
+  qc1.x(0);
+  qc2.x(0);
+
+  // add a global phase of -1
+  qc2.z(0);
+  qc2.x(0);
+  qc2.z(0);
+  qc2.x(0);
+
+  config.execution.runAlternatingChecker  = false;
+  config.execution.runConstructionChecker = false;
+  config.execution.runZXChecker           = false;
+  config.execution.runSimulationChecker   = true;
+  config.execution.parallel               = false;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.run();
+  const auto json       = ecm.getResults().json();
+  const auto simChecker = json["checkers"].front();
+  EXPECT_EQ(simChecker["equivalence"], "equivalent_up_to_phase");
+}
+
 TEST_F(EqualityTest, CloseButNotEqualAlternating) {
   qc1.x(0);
 
   qc2.x(0);
-  qc2.phase(0, dd::PI / 1024.);
+  qc2.p(dd::PI / 1024., 0);
 
   config.functionality.traceThreshold    = 1e-2;
   config.execution.runAlternatingChecker = true;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
 }
 
@@ -81,13 +104,13 @@ TEST_F(EqualityTest, CloseButNotEqualConstruction) {
   qc1.x(0);
 
   qc2.x(0);
-  qc2.phase(0, dd::PI / 1024.);
+  qc2.p(dd::PI / 1024., 0);
 
   config.functionality.traceThreshold     = 1e-2;
   config.execution.runConstructionChecker = true;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
 }
 
@@ -95,7 +118,7 @@ TEST_F(EqualityTest, CloseButNotEqualAlternatingGlobalPhase) {
   qc1.x(0);
 
   qc2.x(0);
-  qc2.phase(0, dd::PI / 1024.);
+  qc2.p(dd::PI / 1024., 0);
   // add a global phase of -1
   qc2.z(0);
   qc2.x(0);
@@ -106,7 +129,7 @@ TEST_F(EqualityTest, CloseButNotEqualAlternatingGlobalPhase) {
   config.execution.runAlternatingChecker = true;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(),
             ec::EquivalenceCriterion::EquivalentUpToGlobalPhase);
 }
@@ -115,13 +138,13 @@ TEST_F(EqualityTest, CloseButNotEqualSimulation) {
   qc1.h(0);
 
   qc2.h(0);
-  qc2.phase(0, dd::PI / 1024.);
+  qc2.p(dd::PI / 1024., 0);
 
   config.simulation.fidelityThreshold   = 1e-2;
   config.execution.runSimulationChecker = true;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::ProbablyEquivalent);
 }
 
@@ -131,13 +154,13 @@ TEST_F(EqualityTest, SimulationMoreThan64Qubits) {
   qc1 = qc::QuantumComputation(65U);
   qc1.h(0);
   for (auto i = 0U; i < 64U; ++i) {
-    qc1.x(i + 1, 0_pc);
+    qc1.cx(0_pc, i + 1);
   }
-  qc2                                   = qc1.clone();
+  qc2                                   = qc1;
   config.execution.runSimulationChecker = true;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::ProbablyEquivalent);
 }
 
@@ -157,6 +180,7 @@ TEST_F(EqualityTest, AutomaticSwitchToConstructionChecker) {
   // setup default configuration
   config = ec::Configuration{};
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setCheckPartialEquivalence(true);
 
   // this should notice that the alternating checker is not capable of running
   // the circuit and should switch to the construction checker
@@ -167,8 +191,8 @@ TEST_F(EqualityTest, AutomaticSwitchToConstructionChecker) {
   // run the equivalence checker
   ecm.run();
 
-  // both circuits should be equivalent since their action only differs on an
-  // ancillary and garbage qubit
+  // both circuits should be partially equivalent since their action only
+  // differs on an ancillary and garbage qubit
   const auto result = ecm.equivalence();
   EXPECT_EQ(result, ec::EquivalenceCriterion::Equivalent);
 
@@ -193,4 +217,112 @@ TEST_F(EqualityTest, ExceptionInParallelThread) {
 
   ec::EquivalenceCheckingManager ecm(qc1, qc1, config);
   EXPECT_THROW(ecm.run(), std::invalid_argument);
+}
+
+TEST_F(EqualityTest, BothCircuitsEmptyAlternatingChecker) {
+  config.execution.runAlternatingChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, BothCircuitsEmptyConstructionChecker) {
+  config.execution.runConstructionChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, BothCircuitsEmptySimulationChecker) {
+  config.execution.runSimulationChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, BothCircuitsEmptyZXChecker) {
+  config.execution.runZXChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, OneCircuitEmptyAlternatingChecker) {
+  qc2.h(0);
+  qc2.x(0);
+  qc2.h(0);
+  qc2.z(0);
+  config.execution.runAlternatingChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, OneCircuitEmptyConstructionChecker) {
+  qc2.h(0);
+  qc2.x(0);
+  qc2.h(0);
+  qc2.z(0);
+  config.execution.runConstructionChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, OneCircuitEmptySimulationChecker) {
+  qc2.h(0);
+  qc2.x(0);
+  qc2.h(0);
+  qc2.z(0);
+  config.execution.runSimulationChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::ProbablyEquivalent);
+}
+
+TEST_F(EqualityTest, OneCircuitEmptyZXChecker) {
+  qc2.h(0);
+  qc2.x(0);
+  qc2.h(0);
+  qc2.z(0);
+  config.execution.runZXChecker = true;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.setApplicationScheme(ec::ApplicationSchemeType::Proportional);
+  ecm.run();
+  EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
+}
+
+TEST_F(EqualityTest, onlySingleTask) {
+  qc1.h(0);
+  qc2.h(0);
+  config.execution.runSimulationChecker = true;
+  config.simulation.maxSims             = 1U;
+  ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  ecm.run();
+  EXPECT_TRUE(ecm.getConfiguration().onlySingleTask());
+
+  ecm.reset();
+  ecm.disableAllCheckers();
+  ecm.setConstructionChecker(true);
+  ecm.run();
+  EXPECT_TRUE(ecm.getConfiguration().onlySingleTask());
+
+  ecm.reset();
+  ecm.disableAllCheckers();
+  ecm.setZXChecker(true);
+  ecm.run();
+  EXPECT_TRUE(ecm.getConfiguration().onlySingleTask());
+
+  ecm.reset();
+  ecm.disableAllCheckers();
+  ecm.setAlternatingChecker(true);
+  ecm.run();
+  EXPECT_TRUE(ecm.getConfiguration().onlySingleTask());
 }

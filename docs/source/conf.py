@@ -1,4 +1,5 @@
 """Sphinx configuration file."""
+
 from __future__ import annotations
 
 import warnings
@@ -9,6 +10,10 @@ from typing import TYPE_CHECKING
 import pybtex.plugin
 from pybtex.style.formatting.unsrt import Style as UnsrtStyle
 from pybtex.style.template import field, href
+
+if TYPE_CHECKING:
+    from pybtex.database import Entry
+    from pybtex.richtext import HRef
 
 ROOT = Path(__file__).parent.parent.resolve()
 
@@ -32,17 +37,16 @@ except ModuleNotFoundError:
 # Filter git details from version
 release = version.split("+")[0]
 
-if TYPE_CHECKING:
-    from pybtex.database import Entry
-    from pybtex.richtext import HRef
-
-# -- Project information -----------------------------------------------------
 project = "QCEC"
 author = "Lukas Burgholzer"
 language = "en"
 project_copyright = "Chair for Design Automation, Technical University of Munich"
 
-# -- General configuration ---------------------------------------------------
+master_doc = "index"
+
+templates_path = ["_templates"]
+html_css_files = ["custom.css"]
+
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -108,7 +112,7 @@ exclude_patterns = ["_build", "build", "**.ipynb_checkpoints", "Thumbs.db", ".DS
 class CDAStyle(UnsrtStyle):
     """Custom style for including PDF links."""
 
-    def format_url(self, _e: Entry) -> HRef:
+    def format_url(self, _e: Entry) -> HRef:  # noqa: PLR6301
         """Format URL field as a link to the PDF."""
         url = field("url", raw=True)
         return href()[url, "[PDF]"]
@@ -132,7 +136,6 @@ napoleon_numpy_docstring = False
 
 # -- Options for HTML output -------------------------------------------------
 html_theme = "furo"
-html_baseurl = "https://mqt.readthedocs.io/project/qcec/en/latest/"
 html_static_path = ["_static"]
 html_theme_options = {
     "light_logo": "mqt_dark.png",

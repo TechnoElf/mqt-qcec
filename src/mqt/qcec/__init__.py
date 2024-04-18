@@ -3,6 +3,7 @@
 This file is part of the MQT QCEC library released under the MIT license.
 See README.md or go to https://github.com/cda-tum/qcec for more information.
 """
+
 from __future__ import annotations
 
 from ._version import version as __version__
@@ -23,9 +24,9 @@ __all__ = [
     "Configuration",
     "EquivalenceCheckingManager",
     "EquivalenceCriterion",
-    "generate_profile",
     "StateType",
+    "__version__",
+    "generate_profile",
     "verify",
     "verify_compilation",
-    "__version__",
 ]

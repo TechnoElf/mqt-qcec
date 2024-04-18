@@ -12,6 +12,8 @@ if TYPE_CHECKING or sys.version_info < (3, 9, 0):
 else:
     from importlib import resources
 
+import difflib
+
 import pytest
 
 from mqt import qcec
@@ -19,13 +21,13 @@ from mqt.qcec.compilation_flow_profiles import generate_profile_name
 
 
 @pytest.fixture(params=[0, 1, 2, 3])
-def optimization_level(request: Any) -> int:  # noqa: ANN401
+def optimization_level(request: Any) -> int:
     """Fixture for optimization levels."""
     return cast(int, request.param)
 
 
 @pytest.fixture(params=[qcec.AncillaMode.NO_ANCILLA, qcec.AncillaMode.RECURSION, qcec.AncillaMode.V_CHAIN])
-def ancilla_mode(request: Any) -> qcec.AncillaMode:  # noqa: ANN401
+def ancilla_mode(request: Any) -> qcec.AncillaMode:
     """Fixture for ancilla modes."""
     return cast(qcec.AncillaMode, request.param)
 
@@ -61,15 +63,18 @@ def test_generated_profiles_are_still_valid(optimization_level: int, ancilla_mod
         if equal:
             return
 
-        import difflib
-
         ref_profile = path.read_text().splitlines(keepends=True)
         gen_profile = Path(profile_name).read_text().splitlines(keepends=True)
         diff = difflib.unified_diff(ref_profile, gen_profile, fromfile="reference", tofile="generated", n=0)
+        num_diffs = sum(
+            1
+            for line in diff
+            if (
+                (line.startswith("-") and not line.startswith("---"))
+                or (line.startswith("+") and not line.startswith("+++"))
+            )
+        )
         sys.stdout.writelines(diff)
-
-        # compute the number of differences
-        num_diffs = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
 
         assert num_diffs <= 1, (
             f"The generated profile {profile_name} differs from the reference profile {ref} by {num_diffs} lines. "

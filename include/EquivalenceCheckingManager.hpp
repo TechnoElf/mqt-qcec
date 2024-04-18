@@ -5,23 +5,26 @@
 
 #pragma once
 
-#include "CircuitOptimizer.hpp"
 #include "Configuration.hpp"
 #include "EquivalenceCriterion.hpp"
 #include "QuantumComputation.hpp"
 #include "ThreadSafeQueue.hpp"
-#include "checker/dd/DDAlternatingChecker.hpp"
-#include "checker/dd/DDConstructionChecker.hpp"
 #include "checker/dd/DDSimulationChecker.hpp"
 #include "checker/dd/simulation/StateGenerator.hpp"
-#include "checker/zx/ZXChecker.hpp"
+#include "dd/ComplexNumbers.hpp"
+#include "dd/DDDefinitions.hpp"
 
-#include <atomic>
-#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <exception>
 #include <future>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <nlohmann/json_fwd.hpp>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ec {
@@ -29,6 +32,17 @@ namespace ec {
 class EquivalenceCheckingManager {
 public:
   struct Results {
+    std::string name1;
+    std::string name2;
+
+    std::size_t numQubits1{};
+    std::size_t numQubits2{};
+
+    std::size_t numGates1{};
+    std::size_t numGates2{};
+
+    Configuration configuration{};
+
     double preprocessingTime{};
     double checkTime{};
 
@@ -36,10 +50,12 @@ public:
 
     std::size_t startedSimulations   = 0U;
     std::size_t performedSimulations = 0U;
-    dd::CVec    cexInput{};
-    dd::CVec    cexOutput1{};
-    dd::CVec    cexOutput2{};
+    dd::CVec    cexInput;
+    dd::CVec    cexOutput1;
+    dd::CVec    cexOutput2;
     std::size_t performedInstantiations = 0U;
+
+    nlohmann::json checkerResults = nlohmann::json::array();
 
     [[nodiscard]] bool consideredEquivalent() const {
       switch (equivalence) {
@@ -62,6 +78,11 @@ public:
       }
     }
     [[nodiscard]] std::string toString() const { return json().dump(2); }
+    friend std::ostream&
+    operator<<(std::ostream&                              os,
+               const EquivalenceCheckingManager::Results& res) {
+      return os << res.toString();
+    }
   };
 
   EquivalenceCheckingManager(const qc::QuantumComputation& circ1,
@@ -74,14 +95,6 @@ public:
     stateGenerator.clear();
     results = Results{};
     checkers.clear();
-  }
-
-  [[nodiscard]] nlohmann::json json() const;
-  [[nodiscard]] std::string    toString() const { return json().dump(2); }
-
-  friend std::ostream& operator<<(std::ostream&                     os,
-                                  const EquivalenceCheckingManager& ecm) {
-    return os << ecm.toString();
   }
 
   [[nodiscard]] EquivalenceCriterion equivalence() const {
@@ -125,11 +138,13 @@ public:
   }
 
   // Optimization: Optimizations are applied during initialization. Already
-  // configured and applied optimizations cannot be reverted
+  // configured and applied optimizations cannot be reverted.
   void runFixOutputPermutationMismatch();
   void fuseSingleQubitGates();
   void reconstructSWAPs();
   void reorderOperations();
+  void backpropagateOutputPermutation();
+  void elidePermutations();
 
   // Application: These settings may be changed to influence the sequence in
   // which gates are applied during the equivalence check
@@ -195,6 +210,9 @@ public:
   void setTraceThreshold(double traceThreshold) {
     configuration.functionality.traceThreshold = traceThreshold;
   }
+  void setCheckPartialEquivalence(bool checkPE) {
+    configuration.functionality.checkPartialEquivalence = checkPE;
+  }
 
   // Simulation: These setting may be changed to adjust the kinds of simulations
   // that are performed
@@ -222,18 +240,18 @@ public:
   }
 
 protected:
-  qc::QuantumComputation qc1{};
-  qc::QuantumComputation qc2{};
+  qc::QuantumComputation qc1;
+  qc::QuantumComputation qc2;
 
   Configuration configuration{};
 
   StateGenerator stateGenerator;
-  std::mutex     stateGeneratorMutex{};
+  std::mutex     stateGeneratorMutex;
 
   bool                                             done{false};
-  std::condition_variable                          doneCond{};
-  std::mutex                                       doneMutex{};
-  std::vector<std::unique_ptr<EquivalenceChecker>> checkers{};
+  std::condition_variable                          doneCond;
+  std::mutex                                       doneMutex;
+  std::vector<std::unique_ptr<EquivalenceChecker>> checkers;
 
   Results results{};
 
@@ -323,13 +341,6 @@ protected:
 
   [[nodiscard]] bool simulationsFinished() const {
     return results.performedSimulations == configuration.simulation.maxSims;
-  }
-
-  static void addCircuitDescription(const qc::QuantumComputation& qc,
-                                    nlohmann::json&               j) {
-    j["name"]     = qc.getName();
-    j["n_qubits"] = qc.getNqubits();
-    j["n_gates"]  = qc.getNops();
   }
 };
 } // namespace ec

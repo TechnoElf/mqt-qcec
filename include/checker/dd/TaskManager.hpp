@@ -6,7 +6,15 @@
 #pragma once
 
 #include "QuantumComputation.hpp"
+#include "dd/DDpackageConfig.hpp"
 #include "dd/Operations.hpp"
+#include "dd/Package.hpp"
+#include "dd/Package_fwd.hpp"
+#include "operations/OpType.hpp"
+#include "operations/Operation.hpp"
+
+#include <cstddef>
+#include <memory>
 
 namespace ec {
 enum class Direction : bool { Left = true, Right = false };
@@ -15,13 +23,18 @@ template <class DDType, class Config = dd::DDPackageConfig> class TaskManager {
   using DDPackage = typename dd::Package<Config>;
 
 public:
-  TaskManager(const qc::QuantumComputation& circ,
-              std::unique_ptr<DDPackage>& dd, const ec::Direction& dir) noexcept
-      : qc(&circ), package(dd), direction(dir), permutation(circ.initialLayout),
-        iterator(circ.begin()), end(circ.end()) {}
-  TaskManager(const qc::QuantumComputation& circ,
-              std::unique_ptr<DDPackage>&   dd) noexcept
+  TaskManager(const qc::QuantumComputation& circ, DDPackage& dd,
+              const ec::Direction& dir) noexcept
+      : qc(&circ), package(&dd), direction(dir),
+        permutation(circ.initialLayout), iterator(circ.begin()),
+        end(circ.end()) {}
+  TaskManager(const qc::QuantumComputation& circ, DDPackage& dd) noexcept
       : TaskManager(circ, dd, Direction::Left) {}
+
+  void reset() noexcept {
+    iterator    = qc->begin();
+    permutation = qc->initialLayout;
+  }
 
   [[nodiscard]] bool finished() const noexcept { return iterator == end; }
 
@@ -40,15 +53,17 @@ public:
   }
 
   [[nodiscard]] qc::MatrixDD getDD() {
-    return dd::getDD((*iterator).get(), package, permutation);
+    return dd::getDD((*iterator).get(), *package, permutation);
   }
   [[nodiscard]] qc::MatrixDD getInverseDD() {
-    return dd::getInverseDD((*iterator).get(), package, permutation);
+    return dd::getInverseDD((*iterator).get(), *package, permutation);
   }
 
   [[nodiscard]] const qc::QuantumComputation* getCircuit() const noexcept {
     return qc;
   }
+
+  qc::QuantumComputation::const_iterator getIterator() { return iterator; }
 
   void advanceIterator() { ++iterator; }
 
@@ -95,7 +110,7 @@ public:
   void finish() { finish(internalState); }
 
   void changePermutation(DDType& state) {
-    dd::changePermutation(state, permutation, qc->outputPermutation, package,
+    dd::changePermutation(state, permutation, qc->outputPermutation, *package,
                           static_cast<bool>(direction));
   }
   void changePermutation() { changePermutation(internalState); }
@@ -108,12 +123,16 @@ public:
   }
   void reduceAncillae() { reduceAncillae(internalState); }
 
+  /**
+   Reduces garbage qubits such that the matrix will be equal to another reduced
+   matrix iff the two underlying circuits are partially equivalent.
+   **/
   void reduceGarbage(DDType& state) {
     if constexpr (std::is_same_v<DDType, qc::VectorDD>) {
-      state = package->reduceGarbage(state, qc->garbage);
+      state = package->reduceGarbage(state, qc->garbage, true);
     } else if constexpr (std::is_same_v<DDType, qc::MatrixDD>) {
       state = package->reduceGarbage(state, qc->garbage,
-                                     static_cast<bool>(direction));
+                                     static_cast<bool>(direction), true);
     }
   }
   void reduceGarbage() { reduceGarbage(internalState); }
@@ -126,7 +145,7 @@ public:
 
 private:
   const qc::QuantumComputation* qc{};
-  std::unique_ptr<DDPackage>&   package;
+  DDPackage*                    package;
   ec::Direction                 direction = Direction::Left;
   qc::Permutation               permutation{};
   decltype(qc->begin())         iterator;

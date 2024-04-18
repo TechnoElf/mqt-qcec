@@ -35,11 +35,11 @@ TEST_F(GateCostApplicationSchemeTest, SchemeFromProfile) {
   ofs.close();
 
   // apply Toffoli gate
-  qc.x(0, {1_pc, 2_pc});
+  qc.mcx({1_pc, 2_pc}, 0);
 
-  auto tm = ec::TaskManager<qc::MatrixDD>(qc, dd);
+  auto tm = ec::TaskManager<qc::MatrixDD>(qc, *dd);
 
-  auto scheme = ec::GateCostApplicationScheme(tm, tm, filename);
+  auto scheme = ec::GateCostApplicationScheme(tm, tm, filename, false);
 
   const auto [left, right] = scheme();
 
@@ -52,15 +52,16 @@ TEST_F(GateCostApplicationSchemeTest, SchemeFromProfile) {
   ec::EquivalenceCheckingManager ecm(qc, qc, config);
   ecm.run();
   EXPECT_TRUE(ecm.getResults().consideredEquivalent());
-  std::cout << ecm.toString() << std::endl;
+  std::cout << ecm.getResults() << "\n";
 }
 
 TEST_F(GateCostApplicationSchemeTest, iSWAP) {
   qc.iswap(0, 1);
 
-  auto tm = ec::TaskManager<qc::MatrixDD>(qc, dd);
+  auto tm = ec::TaskManager<qc::MatrixDD>(qc, *dd);
 
-  auto scheme = ec::GateCostApplicationScheme(tm, tm, &ec::legacyCostFunction);
+  auto scheme =
+      ec::GateCostApplicationScheme(tm, tm, &ec::legacyCostFunction, false);
 
   const auto [left, right] = scheme();
 
@@ -71,11 +72,12 @@ TEST_F(GateCostApplicationSchemeTest, iSWAP) {
 TEST_F(GateCostApplicationSchemeTest, Peres) {
   using namespace qc::literals;
 
-  qc.peres(1, 2, 0_pc);
+  qc.cperes(0_pc, 1, 2);
 
-  auto tm = ec::TaskManager<qc::MatrixDD>(qc, dd);
+  auto tm = ec::TaskManager<qc::MatrixDD>(qc, *dd);
 
-  auto scheme = ec::GateCostApplicationScheme(tm, tm, &ec::legacyCostFunction);
+  auto scheme =
+      ec::GateCostApplicationScheme(tm, tm, &ec::legacyCostFunction, false);
 
   const auto [left, right] = scheme();
 

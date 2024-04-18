@@ -5,14 +5,23 @@
 
 #include "checker/dd/DDEquivalenceChecker.hpp"
 
-#include "CircuitOptimizer.hpp"
+#include "EquivalenceCriterion.hpp"
+#include "checker/EquivalenceChecker.hpp"
 #include "checker/dd/DDPackageConfigs.hpp"
-#include "checker/dd/applicationscheme/DiffApplicationScheme.hpp"
+#include "checker/dd/TaskManager.hpp"
+#include "checker/dd/applicationscheme/ApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/GateCostApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/LookaheadApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/OneToOneApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/ProportionalApplicationScheme.hpp"
 #include "checker/dd/applicationscheme/SequentialApplicationScheme.hpp"
+#include "checker/dd/applicationscheme/DiffApplicationScheme.hpp"
+#include "dd/DDpackageConfig.hpp"
+#include "dd/Package_fwd.hpp"
+
+#include <chrono>
+#include <nlohmann/json.hpp>
+#include <stdexcept>
 
 namespace ec {
 
@@ -101,23 +110,11 @@ EquivalenceCriterion DDEquivalenceChecker<DDType, Config>::run() {
   // etc.)
   initialize();
 
-  if (isDone()) {
-    return equivalence;
-  }
-
   // execute the equivalence checking scheme
   execute();
 
-  if (isDone()) {
-    return equivalence;
-  }
-
   // finish off both circuits
   finish();
-
-  if (isDone()) {
-    return equivalence;
-  }
 
   // postprocess the result
   postprocess();
@@ -131,17 +128,23 @@ EquivalenceCriterion DDEquivalenceChecker<DDType, Config>::run() {
 
   // determine maximum number of nodes used
   if constexpr (std::is_same_v<DDType, qc::MatrixDD>) {
-    maxActiveNodes = dd->mUniqueTable.getStats().peakActiveEntryCount;
+    maxActiveNodes = dd->mUniqueTable.getPeakNumActiveEntries();
   }
 
   if constexpr (std::is_same_v<DDType, qc::VectorDD>) {
-    maxActiveNodes = dd->vUniqueTable.getStats().peakActiveEntryCount;
+    maxActiveNodes = dd->vUniqueTable.getPeakNumActiveEntries();
   }
 
   const auto end = std::chrono::steady_clock::now();
   runtime += std::chrono::duration<double>(end - start).count();
 
   return equivalence;
+}
+
+template <class DDType, class Config>
+void DDEquivalenceChecker<DDType, Config>::initializeTask(
+    TaskManager<DDType, Config>& taskManager) {
+  taskManager.reset();
 }
 
 template <class DDType, class Config>
@@ -157,30 +160,29 @@ void DDEquivalenceChecker<DDType, Config>::execute() {
     taskManager1.applySwapOperations();
     taskManager2.applySwapOperations();
 
-    if (!taskManager1.finished() && !taskManager2.finished()) {
+    if (!taskManager1.finished() && !taskManager2.finished() && !isDone()) {
       // query application scheme on how to proceed
       const auto [apply1, apply2] = (*applicationScheme)();
 
       // advance both tasks correspondingly
-      if (isDone()) {
-        return;
+      if (!isDone()) {
+        taskManager1.advance(apply1);
       }
-      taskManager1.advance(apply1);
-      if (isDone()) {
-        return;
+      if (!isDone()) {
+        taskManager2.advance(apply2);
       }
-      taskManager2.advance(apply2);
     }
   }
 }
 
 template <class DDType, class Config>
 void DDEquivalenceChecker<DDType, Config>::finish() {
-  taskManager1.finish();
-  if (isDone()) {
-    return;
+  if (!isDone()) {
+    taskManager1.finish();
   }
-  taskManager2.finish();
+  if (!isDone()) {
+    taskManager2.finish();
+  }
 }
 
 template <class DDType, class Config>
@@ -198,17 +200,21 @@ void DDEquivalenceChecker<DDType, Config>::postprocessTask(
   if (isDone()) {
     return;
   }
-  // sum up the contributions of garbage qubits
-  task.reduceGarbage();
+  // sum up the contributions of garbage qubits if we want to check for partial
+  // equivalence
+  if (configuration.functionality.checkPartialEquivalence) {
+    task.reduceGarbage();
+  }
 }
 
 template <class DDType, class Config>
 void DDEquivalenceChecker<DDType, Config>::postprocess() {
-  postprocessTask(taskManager1);
-  if (isDone()) {
-    return;
+  if (!isDone()) {
+    postprocessTask(taskManager1);
   }
-  postprocessTask(taskManager2);
+  if (!isDone()) {
+    postprocessTask(taskManager2);
+  }
 }
 
 template <class DDType, class Config>
@@ -244,12 +250,14 @@ void DDEquivalenceChecker<DDType, Config>::initializeApplicationScheme(
     if (!configuration.application.profile.empty()) {
       applicationScheme =
           std::make_unique<GateCostApplicationScheme<DDType, Config>>(
-              taskManager1, taskManager2, configuration.application.profile);
+              taskManager1, taskManager2, configuration.application.profile,
+              configuration.optimizations.fuseSingleQubitGates);
     } else {
       applicationScheme =
           std::make_unique<GateCostApplicationScheme<DDType, Config>>(
               taskManager1, taskManager2,
-              configuration.application.costFunction);
+              configuration.application.costFunction,
+              configuration.optimizations.fuseSingleQubitGates);
     }
     break;
   case ApplicationSchemeType::Diff:
@@ -259,9 +267,17 @@ void DDEquivalenceChecker<DDType, Config>::initializeApplicationScheme(
   default:
     applicationScheme =
         std::make_unique<ProportionalApplicationScheme<DDType, Config>>(
-            taskManager1, taskManager2);
+            taskManager1, taskManager2,
+            configuration.optimizations.fuseSingleQubitGates);
     break;
   }
+}
+
+template <class DDType, class Config>
+void DDEquivalenceChecker<DDType, Config>::json(
+    nlohmann::json& j) const noexcept {
+  EquivalenceChecker::json(j);
+  j["max_nodes"] = maxActiveNodes;
 }
 
 template class DDEquivalenceChecker<qc::VectorDD, dd::DDPackageConfig>;

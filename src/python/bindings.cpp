@@ -7,7 +7,6 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 #include "pybind11_json/pybind11_json.hpp"
-#include "python/qiskit/QasmQobjExperiment.hpp"
 #include "python/qiskit/QuantumCircuit.hpp"
 
 #include <exception>
@@ -17,7 +16,8 @@ namespace py = pybind11;
 using namespace pybind11::literals;
 
 namespace ec {
-static qc::QuantumComputation importCircuit(const py::object& circ) {
+namespace {
+qc::QuantumComputation importCircuit(const py::object& circ) {
   const py::object quantumCircuit =
       py::module::import("qiskit").attr("QuantumCircuit");
   const py::object pyQasmQobjExperiment =
@@ -30,8 +30,6 @@ static qc::QuantumComputation importCircuit(const py::object& circ) {
     qc.import(file);
   } else if (py::isinstance(circ, quantumCircuit)) {
     qc::qiskit::QuantumCircuit::import(qc, circ);
-  } else if (py::isinstance(circ, pyQasmQobjExperiment)) {
-    qc::qiskit::QasmQobjExperiment::import(qc, circ);
   } else {
     throw std::runtime_error(
         "PyObject is neither py::str, QuantumCircuit, nor QasmQobjExperiment");
@@ -40,7 +38,7 @@ static qc::QuantumComputation importCircuit(const py::object& circ) {
   return qc;
 }
 
-static std::unique_ptr<EquivalenceCheckingManager>
+std::unique_ptr<EquivalenceCheckingManager>
 createManagerFromConfiguration(const py::object& circ1, const py::object& circ2,
                                const Configuration& configuration = {}) {
   qc::QuantumComputation qc1;
@@ -61,6 +59,7 @@ createManagerFromConfiguration(const py::object& circ1, const py::object& circ2,
 
   return std::make_unique<EquivalenceCheckingManager>(qc1, qc2, configuration);
 }
+} // namespace
 
 PYBIND11_MODULE(pyqcec, m) {
   m.doc() = "Python interface for the MQT QCEC quantum circuit equivalence "
@@ -247,6 +246,15 @@ PYBIND11_MODULE(pyqcec, m) {
            ":attr:`Reorder operations "
            "<.Configuration.Optimizations.reorder_operations>` to establish "
            "canonical ordering.")
+      .def("backpropagate_output_permutation",
+           &EquivalenceCheckingManager::backpropagateOutputPermutation,
+           ":attr:`Backpropagate the output permutation "
+           "<.Configuration.Optimizations.backpropagate_output_permutation>` "
+           "to the input permutation.")
+      .def("elide_permutations", &EquivalenceCheckingManager::elidePermutations,
+           ":attr:`Elide permutations "
+           "<.Configuration.Optimizations.elide_permutations>`"
+           " from the circuit.")
       // Application
       .def("set_application_scheme",
            &EquivalenceCheckingManager::setApplicationScheme,
@@ -309,6 +317,15 @@ PYBIND11_MODULE(pyqcec, m) {
            "Set the :attr:`trace threshold "
            "<.Configuration.Functionality.trace_threshold>` used for comparing "
            "two unitaries or functionality matrices.")
+      .def(
+          "set_check_partial_equivalence",
+          &EquivalenceCheckingManager::setCheckPartialEquivalence,
+          "enable"_a = false,
+          "Set whether to check for partial equivalence. Two circuits are "
+          "partially equivalent if, for each possible initial input state, "
+          "they have the same probability for each measurement outcome. "
+          "If set to false, the checker will output 'not equivalent' for "
+          "circuits that are partially equivalent but not totally equivalent. ")
       // Simulation
       .def("set_fidelity_threshold",
            &EquivalenceCheckingManager::setFidelityThreshold,
@@ -355,15 +372,32 @@ PYBIND11_MODULE(pyqcec, m) {
       .def("get_results", &EquivalenceCheckingManager::getResults,
            "Returns the :class:`.EquivalenceCheckingManager.Results` of the "
            "equivalence check including statistics.")
-      .def("json", &EquivalenceCheckingManager::json,
-           "Returns a JSON-style dictionary of all the information present in "
-           "the :class:`.EquivalenceCheckingManager`")
-      .def("__repr__", &EquivalenceCheckingManager::toString,
-           "Prints a JSON-formatted representation of all the information "
-           "present in the :class:`.EquivalenceCheckingManager`");
+      .def("__repr__", [](const EquivalenceCheckingManager& ecm) {
+        return "<EquivalenceCheckingManager: " + toString(ecm.equivalence()) +
+               ">";
+      });
 
   // EquivalenceCheckingManager::Results bindings
   results.def(py::init<>())
+      .def_readwrite("name1", &EquivalenceCheckingManager::Results::name1,
+                     "Name of the first circuit.")
+      .def_readwrite("name2", &EquivalenceCheckingManager::Results::name2,
+                     "Name of the second circuit.")
+      .def_readwrite("num_qubits1",
+                     &EquivalenceCheckingManager::Results::numQubits1,
+                     "Number of qubits of the first circuit.")
+      .def_readwrite("num_qubits2",
+                     &EquivalenceCheckingManager::Results::numQubits2,
+                     "Number of qubits of the second circuit.")
+      .def_readwrite("num_gates1",
+                     &EquivalenceCheckingManager::Results::numGates1,
+                     "Number of gates of the first circuit.")
+      .def_readwrite("num_gates2",
+                     &EquivalenceCheckingManager::Results::numGates2,
+                     "Number of gates of the second circuit.")
+      .def_readwrite("configuration",
+                     &EquivalenceCheckingManager::Results::configuration,
+                     ":class:`.Configuration` used for the equivalence check.")
       .def_readwrite("preprocessing_time",
                      &EquivalenceCheckingManager::Results::preprocessingTime,
                      "Time spent during preprocessing (in seconds).")
@@ -396,14 +430,21 @@ PYBIND11_MODULE(pyqcec, m) {
           &EquivalenceCheckingManager::Results::performedInstantiations,
           "Number of circuit instantiations that have been performed during "
           "equivalence checking of parameterized quantum circuits.")
+      .def_readwrite("checker_results",
+                     &EquivalenceCheckingManager::Results::checkerResults,
+                     "Dictionary of the results of the individual checkers.")
       .def("considered_equivalent",
            &EquivalenceCheckingManager::Results::consideredEquivalent,
            "Convenience function to check whether the obtained result is to be "
            "considered equivalent.")
       .def("json", &EquivalenceCheckingManager::Results::json,
            "Returns a JSON-style dictionary of the results.")
-      .def("__repr__", &EquivalenceCheckingManager::Results::toString,
-           "Prints a JSON-formatted representation of the results.");
+      .def("__str__", &EquivalenceCheckingManager::Results::toString,
+           "Prints a JSON-formatted representation of the results.")
+      .def("__repr__", [](const EquivalenceCheckingManager::Results& res) {
+        return "<EquivalenceCheckingManager.Results: " +
+               toString(res.equivalence) + ">";
+      });
 
   // Configuration sub-classes
   py::class_<Configuration::Execution> execution(
@@ -546,7 +587,23 @@ PYBIND11_MODULE(pyqcec, m) {
           "a different order. This optimization pass established a canonical "
           "ordering of operations by, first, constructing a directed, acyclic "
           "graph for the operations and, then, traversing it in a "
-          "breadth-first fashion. Defaults to :code:`True`.");
+          "breadth-first fashion. Defaults to :code:`True`.")
+      .def_readwrite(
+          "backpropagate_output_permutation",
+          &Configuration::Optimizations::backpropagateOutputPermutation,
+          "Backpropagate the output permutation to the input permutation. "
+          "Defaults to :code:`False` since this might mess up the initially "
+          "given input permutation. Can be helpful for dynamic quantum circuits"
+          " that have been transformed to a static circuit by enabling the "
+          ":attr:`transform_dynamic_circuit "
+          "<.Configuration.Optimizations.transform_dynamic_circuit>` "
+          "optimization.")
+      .def_readwrite(
+          "elide_permutations",
+          &Configuration::Optimizations::elidePermutations,
+          "Elide permutations from the circuit by permuting the qubits in the "
+          "circuit and eliminating SWAP gates from the circuits. Defaults to "
+          ":code:`True` as this typically boosts performance.");
 
   // application options
   application.def(py::init<>())
@@ -598,7 +655,19 @@ PYBIND11_MODULE(pyqcec, m) {
           "while the second and third successor have weights close to zero). "
           "Whenever any decision diagram node differs from this structure by "
           "more than the configured threshold, the circuits are concluded to "
-          "be non-equivalent. Defaults to :code:`1e-8`.");
+          "be non-equivalent. Defaults to :code:`1e-8`.")
+      .def_readwrite(
+          "check_partial_equivalence",
+          &Configuration::Functionality::checkPartialEquivalence,
+          "Two circuits are partially equivalent if, for each possible initial "
+          "input state, they have the same probability for each measurement "
+          "outcome. If set to :code:`True`, a check for partial equivalence "
+          "will be performed and the contributions of garbage qubits to the "
+          "circuit are ignored. If set to :code:`False`, the checker will "
+          "output 'not equivalent' for circuits that are partially equivalent "
+          "but not totally equivalent. In particular, garbage qubits will be "
+          "treated as if they were measured qubits. Defaults to "
+          ":code:`False`.");
 
   // simulation options
   simulation.def(py::init<>())

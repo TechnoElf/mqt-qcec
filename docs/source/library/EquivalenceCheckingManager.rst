@@ -22,7 +22,7 @@ This constructs the manager using all the default options. The circuits to be ve
 
 * Files
 
-    * `OpenQASM 2.0` (e.g. used by IBM's `Qiskit <https://github.com/Qiskit/qiskit>`_),
+    * `OpenQASM 2.0` and (a subset of) `OpenQASM 3.0` (e.g. used by IBM's `Qiskit <https://github.com/Qiskit/qiskit>`_),
     * `Real` (e.g. from `RevLib <http://revlib.org>`_),
     * `TFC` (e.g. from `Reversible Logic Synthesis Benchmarks Page <http://webhome.cs.uvic.ca/~dmaslov/mach-read.html>`_)
     * `QC` (e.g. from `Feynman <https://github.com/meamy/feynman>`_)
@@ -105,8 +105,4 @@ After the run has completed, several results can be obtained:
 
 * A JSON-style dictionary containing all available information.
 
-    .. automethod:: EquivalenceCheckingManager.json
-
-* Printing the representation of the :class:`EquivalenceCheckingManager` also produces JSON-formatted output of all the available information.
-
-    .. automethod:: EquivalenceCheckingManager.__repr__
+    .. automethod:: EquivalenceCheckingManager.Results.json

@@ -11,8 +11,11 @@
 #include "TaskManager.hpp"
 #include "applicationscheme/ApplicationScheme.hpp"
 #include "checker/EquivalenceChecker.hpp"
+#include "dd/Package.hpp"
 
+#include <cstddef>
 #include <memory>
+#include <nlohmann/json_fwd.hpp>
 #include <utility>
 
 namespace ec {
@@ -24,15 +27,12 @@ public:
                        Configuration                 config)
       : EquivalenceChecker(circ1, circ2, std::move(config)),
         dd(std::make_unique<dd::Package<Config>>(nqubits)),
-        taskManager1(TaskManager<DDType, Config>(circ1, dd)),
-        taskManager2(TaskManager<DDType, Config>(circ2, dd)) {}
+        taskManager1(TaskManager<DDType, Config>(circ1, *dd)),
+        taskManager2(TaskManager<DDType, Config>(circ2, *dd)) {}
 
   EquivalenceCriterion run() override;
 
-  void json(nlohmann::json& j) const noexcept override {
-    EquivalenceChecker::json(j);
-    j["max_nodes"] = maxActiveNodes;
-  }
+  void json(nlohmann::json& j) const noexcept override;
 
 protected:
   using DDPackage = typename dd::Package<Config>;
@@ -52,7 +52,7 @@ protected:
   // in some form
   EquivalenceCriterion equals(const DDType& e, const DDType& f);
 
-  virtual void initializeTask(TaskManager<DDType, Config>& taskManager) = 0;
+  virtual void initializeTask(TaskManager<DDType, Config>& taskManager);
   virtual void initialize();
   virtual void execute();
   virtual void finish();

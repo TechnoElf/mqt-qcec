@@ -5,8 +5,17 @@
 
 #pragma once
 
+#include "Configuration.hpp"
 #include "DDEquivalenceChecker.hpp"
 #include "DDPackageConfigs.hpp"
+#include "QuantumComputation.hpp"
+#include "checker/dd/TaskManager.hpp"
+#include "checker/dd/applicationscheme/ApplicationScheme.hpp"
+#include "dd/Package_fwd.hpp"
+
+#include <nlohmann/json_fwd.hpp>
+#include <stdexcept>
+#include <utility>
 
 namespace ec {
 class DDConstructionChecker final
@@ -30,7 +39,8 @@ public:
 private:
   void initializeTask(TaskManager<qc::MatrixDD, ConstructionDDPackageConfig>&
                           taskManager) override {
-    const auto initial = dd->makeIdent(nqubits);
+    DDEquivalenceChecker::initializeTask(taskManager);
+    const auto initial = dd->makeIdent();
     taskManager.setInternalState(initial);
     taskManager.incRef();
     taskManager.reduceAncillae();

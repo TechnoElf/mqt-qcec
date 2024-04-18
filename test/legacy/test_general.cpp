@@ -25,7 +25,8 @@ TEST_F(GeneralTest, DynamicCircuit) {
   EXPECT_THROW(ec::EquivalenceCheckingManager(bv, dbv, config),
                std::runtime_error);
 
-  config.optimizations.transformDynamicCircuit = true;
+  config.optimizations.transformDynamicCircuit        = true;
+  config.optimizations.backpropagateOutputPermutation = true;
 
   auto ecm = ec::EquivalenceCheckingManager(bv, dbv, config);
 
@@ -33,7 +34,7 @@ TEST_F(GeneralTest, DynamicCircuit) {
 
   EXPECT_TRUE(ecm.getResults().consideredEquivalent());
 
-  std::cout << ecm.toString() << std::endl;
+  std::cout << ecm.getResults() << "\n";
 
   auto ecm2 = ec::EquivalenceCheckingManager(dbv, dbv, config);
 
@@ -41,7 +42,7 @@ TEST_F(GeneralTest, DynamicCircuit) {
 
   EXPECT_TRUE(ecm2.getResults().consideredEquivalent());
 
-  std::cout << ecm2.toString() << std::endl;
+  std::cout << ecm2.getResults() << "\n";
 }
 
 TEST_F(GeneralTest, FixOutputPermutationMismatch) {
@@ -49,7 +50,7 @@ TEST_F(GeneralTest, FixOutputPermutationMismatch) {
   qc1.x(0);
   qc1.x(1);
   qc1.setLogicalQubitAncillary(1);
-  std::cout << qc1 << std::endl;
+  std::cout << qc1 << "\n";
 
   qc2.addQubitRegister(3U);
   qc2.x(0);
@@ -59,8 +60,8 @@ TEST_F(GeneralTest, FixOutputPermutationMismatch) {
   qc2.outputPermutation.erase(1);
   qc2.setLogicalQubitAncillary(1);
   qc2.setLogicalQubitGarbage(1);
-  std::cout << static_cast<int>(qc2.getNqubits()) << std::endl;
-  std::cout << qc2 << std::endl;
+  std::cout << static_cast<int>(qc2.getNqubits()) << "\n";
+  std::cout << qc2 << "\n";
 
   auto config                                       = ec::Configuration{};
   config.optimizations.fixOutputPermutationMismatch = true;
@@ -80,22 +81,22 @@ TEST_F(GeneralTest, RemoveDiagonalGatesBeforeMeasure) {
   qc1.addClassicalRegister(1U);
   qc1.x(0);
   qc1.measure(0, 0U);
-  std::cout << qc1 << std::endl;
-  std::cout << "-----------------------------" << std::endl;
+  std::cout << qc1 << "\n";
+  std::cout << "-----------------------------\n";
 
   qc2.addQubitRegister(1U);
   qc2.addClassicalRegister(1U);
   qc2.x(0);
   qc2.z(0);
   qc2.measure(0, 0U);
-  std::cout << qc2 << std::endl;
-  std::cout << "-----------------------------" << std::endl;
+  std::cout << qc2 << "\n";
+  std::cout << "-----------------------------\n";
 
   // the standard check should reveal that both circuits are not equivalent
   auto ecm = ec::EquivalenceCheckingManager(qc1, qc2);
   ecm.run();
   EXPECT_FALSE(ecm.getResults().consideredEquivalent());
-  std::cout << ecm.toString() << std::endl;
+  std::cout << ecm.getResults() << "\n";
 
   // simulations should suggest both circuits to be equivalent
   ecm.reset();
@@ -103,7 +104,7 @@ TEST_F(GeneralTest, RemoveDiagonalGatesBeforeMeasure) {
   ecm.setZXChecker(false);
   ecm.run();
   EXPECT_TRUE(ecm.getResults().consideredEquivalent());
-  std::cout << ecm.toString() << std::endl;
+  std::cout << ecm.getResults() << "\n";
 
   // if configured to remove diagonal gates before measurements, the circuits
   // are equivalent
@@ -112,7 +113,7 @@ TEST_F(GeneralTest, RemoveDiagonalGatesBeforeMeasure) {
   auto ecm2 = ec::EquivalenceCheckingManager(qc1, qc2, config);
   ecm2.run();
   EXPECT_TRUE(ecm2.getResults().consideredEquivalent());
-  std::cout << ecm2.toString() << std::endl;
+  std::cout << ecm2.getResults() << "\n";
 }
 
 TEST_F(GeneralTest, NothingToDo) {
@@ -155,21 +156,21 @@ TEST_F(GeneralTest, NoGateCancellation) {
   qc2.x(0);
 
   // two-qubit gates that cannot be cancelled
-  qc1.x(0, 1_pc);
-  qc2.x(1, 0_pc);
-  qc1.x(0, 1_pc);
-  qc2.x(1, 0_pc);
+  qc1.cx(1_pc, 0);
+  qc2.cx(0_pc, 1);
+  qc1.cx(1_pc, 0);
+  qc2.cx(0_pc, 1);
 
   // gates with parameters that cannot be cancelled
-  qc1.phase(0, 2.0);
-  qc2.phase(0, -2.0);
-  qc1.phase(0, -2.0);
-  qc2.phase(0, 2.0);
+  qc1.p(2.0, 0);
+  qc2.p(-2.0, 0);
+  qc1.p(-2.0, 0);
+  qc2.p(2.0, 0);
 
   // gates with different number of controls that cannot be cancelled
   qc1.x(0);
-  qc2.x(0, 1_pc);
-  qc1.x(0, 1_pc);
+  qc2.cx(1_pc, 0);
+  qc1.cx(1_pc, 0);
   qc2.x(0);
 
   auto config                               = ec::Configuration{};
@@ -181,5 +182,13 @@ TEST_F(GeneralTest, NoGateCancellation) {
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
   EXPECT_TRUE(ecm.getResults().consideredEquivalent());
-  std::cout << ecm.toString() << std::endl;
+  std::cout << ecm.getResults() << "\n";
+}
+
+TEST_F(GeneralTest, Configuration) {
+  auto config = ec::Configuration{};
+  // fix number of simulations
+  config.simulation.maxSims = 1U;
+  const ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
+  EXPECT_EQ(config.toString(), ecm.getConfiguration().toString());
 }

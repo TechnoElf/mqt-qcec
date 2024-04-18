@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 
 from mqt import qcec
 
@@ -67,12 +67,13 @@ def test_compiled_circuit_without_measurements() -> None:
 
     It makes sure that circuits compiled without measurements are handled correctly.
     """
-    from qiskit import transpile
-    from qiskit.providers.fake_provider import FakeAthens
-
     qc = QuantumCircuit(1)
     qc.x(0)
-    qc_compiled = transpile(qc, backend=FakeAthens())
+    qc_compiled = transpile(
+        qc,
+        coupling_map=[[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [3, 4], [4, 3]],
+        basis_gates=["cx", "x", "id", "u3", "measure", "u2", "rz", "u1", "reset", "sx"],
+    )
 
     result = qcec.verify(qc, qc_compiled)
     assert result.equivalence == qcec.EquivalenceCriterion.equivalent

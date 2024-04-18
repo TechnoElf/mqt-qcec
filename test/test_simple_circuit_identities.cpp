@@ -3,13 +3,17 @@
 // See README.md or go to https://github.com/cda-tum/qcec for more information.
 //
 
+#include "Configuration.hpp"
+#include "Definitions.hpp"
 #include "EquivalenceCheckingManager.hpp"
+#include "QuantumComputation.hpp"
 
 #include "gtest/gtest.h"
-#include <functional>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 
 class SimpleCircuitIdentitiesTest
     : public testing::TestWithParam<
@@ -24,20 +28,21 @@ protected:
   void SetUp() override {
     const auto [circ1, circ2] = GetParam().second;
     std::stringstream ss1{circ1};
-    qcOriginal.import(ss1, qc::Format::OpenQASM);
+    qcOriginal.import(ss1, qc::Format::OpenQASM2);
     std::stringstream ss2{circ2};
-    qcAlternative.import(ss2, qc::Format::OpenQASM);
+    qcAlternative.import(ss2, qc::Format::OpenQASM2);
 
     config.optimizations.reconstructSWAPs     = false;
     config.optimizations.fuseSingleQubitGates = false;
     config.optimizations.reorderOperations    = false;
+    config.optimizations.elidePermutations    = false;
     config.execution.runZXChecker             = true;
 
     EXPECT_NO_THROW(ecm = std::make_unique<ec::EquivalenceCheckingManager>(
                         qcOriginal, qcAlternative, config););
   }
 
-  void TearDown() override { std::cout << ecm->toString() << std::endl; }
+  void TearDown() override { std::cout << ecm->getResults() << "\n"; }
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -190,6 +195,20 @@ TEST_P(SimpleCircuitIdentitiesTest, FuseSingleQubitGates) {
 
 TEST_P(SimpleCircuitIdentitiesTest, ReconstructSWAPs) {
   ecm->reconstructSWAPs();
+  EXPECT_NO_THROW(ecm->run(););
+
+  EXPECT_TRUE(ecm->getResults().consideredEquivalent());
+}
+
+TEST_P(SimpleCircuitIdentitiesTest, BackpropagateOutputPermutation) {
+  ecm->backpropagateOutputPermutation();
+  EXPECT_NO_THROW(ecm->run(););
+
+  EXPECT_TRUE(ecm->getResults().consideredEquivalent());
+}
+
+TEST_P(SimpleCircuitIdentitiesTest, ElidePermutations) {
+  ecm->elidePermutations();
   EXPECT_NO_THROW(ecm->run(););
 
   EXPECT_TRUE(ecm->getResults().consideredEquivalent());
