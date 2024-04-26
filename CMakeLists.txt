@@ -8,7 +8,6 @@ project(
 
 option(BUILD_MQT_QCEC_TESTS "Also build tests for the MQT QCEC project" ON)
 option(BUILD_MQT_QCEC_BINDINGS "Build the MQT QCEC Python bindings" OFF)
-option(BUILD_MQT_QCEC_BENCH "Build benchmarks for the MQT QCEC project" ON)
 
 if(BUILD_MQT_QCEC_BINDINGS)
   # ensure that the BINDINGS option is set
@@ -45,11 +44,6 @@ if(BUILD_MQT_QCEC_TESTS)
   enable_testing()
   include(GoogleTest)
   add_subdirectory(test)
-endif()
-
-if(BUILD_MQT_QCEC_BENCH)
-  enable_testing()
-  add_subdirectory(bench)
 endif()
 
 configure_file(

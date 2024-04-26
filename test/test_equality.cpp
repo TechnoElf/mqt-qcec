@@ -89,14 +89,14 @@ TEST_F(EqualityTest, CloseButNotEqualDiff) {
   qc1.x(0);
 
   qc2.x(0);
-  qc2.phase(0, dd::PI / 1024.);
+  qc2.p(dd::PI / 1024., 0);
 
   config.functionality.traceThreshold    = 1e-2;
   config.execution.runAlternatingChecker = true;
   config.application.alternatingScheme = ec::ApplicationSchemeType::Diff;
   ec::EquivalenceCheckingManager ecm(qc1, qc2, config);
   ecm.run();
-  std::cout << ecm << std::endl;
+  std::cout << ecm.getResults() << "\n";
   EXPECT_EQ(ecm.equivalence(), ec::EquivalenceCriterion::Equivalent);
 }
 
