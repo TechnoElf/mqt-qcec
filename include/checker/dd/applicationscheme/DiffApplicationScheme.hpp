@@ -8,6 +8,8 @@
 #include "ApplicationScheme.hpp"
 
 #include <ranges>
+#include <vector>
+#include <map>
 
 namespace ec {
 template <class DDType, class Config>
@@ -15,9 +17,8 @@ class DiffApplicationScheme final : public ApplicationScheme<DDType, Config> {
 public:
   DiffApplicationScheme(TaskManager<DDType, Config>& tm1,
                         TaskManager<DDType, Config>& tm2)
-      : ApplicationScheme<DDType, Config>(tm1, tm2), index(0), path() {
-    path = diff();
-  }
+      : ApplicationScheme<DDType, Config>(tm1, tm2), path(patienceDiff()),
+        index(0) {}
 
   std::pair<size_t, size_t> operator()() noexcept override {
     index++;
@@ -27,16 +28,26 @@ public:
 private:
   std::vector<std::pair<int64_t, int64_t>> path;
   size_t                                   index = 0;
+  const std::string                        empty;
+
+  const std::string& getCirc1OpAt(size_t i) {
+    auto circ1 = this->taskManager1->getCircuit();
+    if (i >= circ1->getNops()) {
+      return this->empty;
+    }
+    return circ1->at(i)->getName();
+  }
+
+  const std::string& getCirc2OpAt(size_t i) {
+    auto circ2 = this->taskManager2->getCircuit();
+    if (i >= circ2->getNops()) {
+      return this->empty;
+    }
+    return circ2->at(i)->getName();
+  }
 
   bool isMatchPoint(size_t x, size_t y) {
-    auto circ1 = this->taskManager1.getCircuit();
-    auto circ2 = this->taskManager2.getCircuit();
-
-    if (x >= circ1->getNops() || y >= circ2->getNops()) {
-      return false;
-    }
-
-    return circ1->at(x)->getName() == circ2->at(y)->getName();
+    return getCirc1OpAt(x) == getCirc2OpAt(y);
   }
 
   std::vector<std::pair<int64_t, int64_t>>
@@ -188,10 +199,134 @@ private:
     return result;
   }
 
-  std::vector<std::pair<int64_t, int64_t>> diff() {
+  std::vector<std::pair<size_t, size_t>>
+  patienceSort(const std::map<size_t, size_t>& indexMatches) {
+    struct PileElement {
+      size_t aIndex;
+      size_t bIndex;
+      size_t prev;
+    };
+
+    std::vector<std::vector<PileElement>> piles;
+
+    for (auto [aIndex, bIndex] : indexMatches) {
+      if (piles.size() == 0) {
+        piles.push_back({PileElement{aIndex, bIndex, 0}});
+        continue;
+      }
+
+      for (size_t i = 0; i <= piles.size(); i++) {
+        if (i == piles.size()) {
+          piles.push_back(
+              {PileElement{aIndex, bIndex, piles[i - 1].size() - 1}});
+          break;
+        }
+
+        if (piles[i][piles[i].size() - 1].bIndex > bIndex) {
+          piles[i].push_back(
+              PileElement{aIndex, bIndex, piles[i - 1].size() - 1});
+          break;
+        }
+      }
+    }
+
+    std::vector<std::pair<size_t, size_t>> increasingMatches;
+    size_t prevPileElement = piles[piles.size() - 1].size() - 1;
+
+    for (size_t i = piles.size(); i > 0; i--) {
+      PileElement e = piles[i - 1][prevPileElement];
+      increasingMatches.insert(increasingMatches.begin(),
+                               std::pair(e.aIndex, e.bIndex));
+      prevPileElement = e.prev;
+    }
+
+    return increasingMatches;
+  }
+
+  std::vector<std::pair<int64_t, int64_t>>
+  patienceRecursive(int64_t x, int64_t y, int64_t w, int64_t h) {
+    std::map<std::string, size_t> aCount;
+    std::map<std::string, size_t> aIndex;
+    std::map<std::string, size_t> bCount;
+    std::map<std::string, size_t> bIndex;
+
+    for (int64_t i = 0; i < w; i++) {
+      aCount[getCirc1OpAt(x + i)] += 1;
+      aIndex[getCirc1OpAt(x + i)] += i;
+    }
+
+    for (int64_t i = 0; i < h; i++) {
+      bCount[getCirc2OpAt(y + i)] += 1;
+      bIndex[getCirc2OpAt(y + i)] += i;
+    }
+
+    std::map<size_t, size_t> indexMatches;
+
+    for (auto [element, count] : aCount) {
+      if (count == 1 && bCount[element] == 1) {
+        indexMatches[aIndex[element]] = bIndex[element];
+      }
+    }
+
+    if (indexMatches.empty()) {
+      return myersRecursive(x, y, w, h);
+    }
+
+    std::vector<std::pair<size_t, size_t>> increasingMatches =
+        patienceSort(indexMatches);
+
+    increasingMatches.emplace_back(std::pair(w, h));
+
+    std::vector<std::pair<int64_t, int64_t>> diff;
+
+    size_t prevAIndex = 0;
+    size_t prevBIndex = 0;
+
+    for (auto [a_index, b_index] : increasingMatches) {
+      size_t aDelta = a_index - prevAIndex;
+      size_t bDelta = b_index - prevBIndex;
+
+      /*
+      if (aDelta > 0) {
+        diff.emplace_back(std::pair(aDelta, 0));
+      }
+
+      if (bDelta > 0) {
+        diff.emplace_back(std::pair(0, bDelta));
+      }
+       */
+
+      if (aDelta > 0 && bDelta > 0) {
+        std::vector<std::pair<int64_t, int64_t>> sub = patienceRecursive(prevAIndex, prevBIndex, aDelta, bDelta);
+        diff.insert(diff.end(), sub.begin(), sub.end());
+      } else if (aDelta > 0) {
+        diff.emplace_back(std::pair(aDelta, 0));
+      } else if (bDelta > 0) {
+        diff.emplace_back(std::pair(0, bDelta));
+      }
+
+      if (a_index == static_cast<size_t>(w) && b_index == static_cast<size_t>(h)) {
+        break;
+      }
+
+      if (diff[diff.size() - 1].first == diff[diff.size() - 1].second) {
+        diff[diff.size() - 1].first += 1;
+        diff[diff.size() - 1].second += 1;
+      } else {
+        diff.emplace_back(std::pair(1, 1));
+      }
+
+      prevAIndex = a_index + 1;
+      prevBIndex = b_index + 1;
+    }
+
+    return diff;
+  }
+
+  std::vector<std::pair<int64_t, int64_t>> myersDiff() {
     std::vector<std::pair<int64_t, int64_t>> result =
-        myersRecursive(0, 0, this->taskManager1.getCircuit()->getNops(),
-                       this->taskManager2.getCircuit()->getNops());
+        myersRecursive(0, 0, this->taskManager1->getCircuit()->getNops(),
+                       this->taskManager2->getCircuit()->getNops());
 
     for (size_t i = 0; i < result.size() - 1; ++i) {
       if (result[i].first == 0 && result[i + 1].first == 0) {
@@ -218,6 +353,14 @@ private:
     + 1].second); result.erase(result.begin() + i + 1); i--;
         }
     }*/
+
+    return result;
+  }
+
+  std::vector<std::pair<int64_t, int64_t>> patienceDiff() {
+    std::vector<std::pair<int64_t, int64_t>> result =
+        patienceRecursive(0, 0, this->taskManager1->getCircuit()->getNops(),
+                       this->taskManager2->getCircuit()->getNops());
 
     return result;
   }

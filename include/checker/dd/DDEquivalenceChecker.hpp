@@ -35,7 +35,11 @@ public:
   void json(nlohmann::json& j) const noexcept override;
 
   [[nodiscard]] size_t peakUniqueTableSize() const {
-    return dd->mUniqueTable.getStats().peakEntryCount + dd->vUniqueTable.getStats().peakEntryCount + dd->dUniqueTable.getStats().peakEntryCount + dd->cUniqueTable.getStats().peakEntryCount;
+    size_t peakUniqueTableSize = 0;
+    for (const auto& stat: dd->mUniqueTable.getStats()) {
+      peakUniqueTableSize += stat.peakNumActiveEntries;
+    }
+    return peakUniqueTableSize;
   }
 
 protected:
