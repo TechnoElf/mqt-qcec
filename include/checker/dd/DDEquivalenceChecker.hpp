@@ -11,6 +11,7 @@
 #include "TaskManager.hpp"
 #include "applicationscheme/ApplicationScheme.hpp"
 #include "checker/EquivalenceChecker.hpp"
+#include "checker/dd/applicationscheme/DiffApplicationScheme.hpp"
 #include "dd/Package.hpp"
 
 #include <cstddef>
@@ -34,12 +35,14 @@ public:
 
   void json(nlohmann::json& j) const noexcept override;
 
-  [[nodiscard]] size_t peakUniqueTableSize() const {
-    size_t peakUniqueTableSize = 0;
-    for (const auto& stat: dd->mUniqueTable.getStats()) {
-      peakUniqueTableSize += stat.peakNumActiveEntries;
+  [[nodiscard]] size_t getMaxActiveNodes() const { return maxActiveNodes; }
+  [[nodiscard]] size_t getDiffEquivalentCount() const {
+    if (const auto* diffApplicationScheme =
+            dynamic_cast<DiffApplicationScheme<DDType, Config>*>(
+                &*applicationScheme)) {
+      return diffApplicationScheme->equivalentCount;
     }
-    return peakUniqueTableSize;
+    return 0;
   }
 
 protected:

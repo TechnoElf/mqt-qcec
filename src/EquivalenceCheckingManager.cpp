@@ -227,11 +227,11 @@ void EquivalenceCheckingManager::run() {
   if (!configuration.functionality.checkPartialEquivalence &&
       garbageQubitsPresent &&
       equivalence() == EquivalenceCriterion::NotEquivalent) {
-    std::clog << "[QCEC] Warning: at least one of the circuits has garbage "
+    /*std::clog << "[QCEC] Warning: at least one of the circuits has garbage "
                  "qubits, but partial equivalence checking is turned off. In "
                  "order to take into account the garbage qubits, enable partial"
                  " equivalence checking. Consult the documentation for more"
-                 "information.\n";
+                 "information.\n";*/
   }
 }
 
@@ -388,7 +388,11 @@ void EquivalenceCheckingManager::checkSequential() {
       // if the alternating check produces a result, this is final
       if (result != EquivalenceCriterion::NoInformation) {
         results.equivalence = result;
-        results.peakUniqueTableSize = dynamic_cast<const DDAlternatingChecker*>(&*alternatingChecker)->peakUniqueTableSize();
+        const DDAlternatingChecker* alternatingCheckerTyped =
+            dynamic_cast<const DDAlternatingChecker*>(&*alternatingChecker);
+        results.maxActiveNodes = alternatingCheckerTyped->getMaxActiveNodes();
+        results.diffEquivalenceCount =
+            alternatingCheckerTyped->getDiffEquivalentCount();
 
         // everything is done
         done = true;
@@ -639,15 +643,12 @@ void EquivalenceCheckingManager::checkParallel() {
     if (dynamic_cast<const DDAlternatingChecker*>(checker) != nullptr) {
       setAndSignalDone();
       results.equivalence = result;
-      results.peakUniqueTableSize = dynamic_cast<const DDAlternatingChecker*>(checker)->peakUniqueTableSize();
       break;
     }
 
     if (dynamic_cast<const DDConstructionChecker*>(checker) != nullptr) {
       setAndSignalDone();
       results.equivalence = result;
-      results.peakUniqueTableSize = dynamic_cast<const DDConstructionChecker*>(checker)->peakUniqueTableSize();
-      break;
     }
 
     if (dynamic_cast<const ZXEquivalenceChecker*>(checker) != nullptr) {

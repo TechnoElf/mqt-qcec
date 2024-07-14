@@ -7,21 +7,26 @@
 
 #include "ApplicationScheme.hpp"
 
+#include <map>
 #include <ranges>
 #include <vector>
-#include <map>
 
 namespace ec {
 template <class DDType, class Config>
 class DiffApplicationScheme final : public ApplicationScheme<DDType, Config> {
 public:
+  size_t equivalentCount = 0;
+
   DiffApplicationScheme(TaskManager<DDType, Config>& tm1,
                         TaskManager<DDType, Config>& tm2)
-      : ApplicationScheme<DDType, Config>(tm1, tm2), path(patienceDiff()),
+      : ApplicationScheme<DDType, Config>(tm1, tm2), path(myersDiff()),
         index(0) {}
 
   std::pair<size_t, size_t> operator()() noexcept override {
     index++;
+    /*std::cout << "(" << path[index - 1].first << ", " << path[index -
+       1].second
+              << ")" << "\n";*/
     return path[index - 1];
   }
 
@@ -297,7 +302,8 @@ private:
        */
 
       if (aDelta > 0 && bDelta > 0) {
-        std::vector<std::pair<int64_t, int64_t>> sub = patienceRecursive(prevAIndex, prevBIndex, aDelta, bDelta);
+        std::vector<std::pair<int64_t, int64_t>> sub =
+            patienceRecursive(prevAIndex, prevBIndex, aDelta, bDelta);
         diff.insert(diff.end(), sub.begin(), sub.end());
       } else if (aDelta > 0) {
         diff.emplace_back(std::pair(aDelta, 0));
@@ -305,7 +311,8 @@ private:
         diff.emplace_back(std::pair(0, bDelta));
       }
 
-      if (a_index == static_cast<size_t>(w) && b_index == static_cast<size_t>(h)) {
+      if (a_index == static_cast<size_t>(w) &&
+          b_index == static_cast<size_t>(h)) {
         break;
       }
 
@@ -346,13 +353,106 @@ private:
       }
     }
 
-    /*for (size_t i = 0; i < result.size() - 1; ++i) {
-        if ((result[i].first == 0 && result[i + 1].second == 0) || (result[i +
-    1].first == 0 && result[i].second == 0)) { result[i] =
-    std::pair(result[i].first + result[i + 1].first, result[i].second + result[i
-    + 1].second); result.erase(result.begin() + i + 1); i--;
+    for (size_t i = 0; i < path.size(); ++i) {
+      if (path[i].first == path[i].second) {
+        equivalentCount += path[i].first * 2;
+      }
+    }
+
+    for (size_t i = 0; i < result.size() - 1; ++i) {
+      if ((result[i].first == 0 && result[i + 1].first == 0) ||
+          (result[i].second == 0 && result[i + 1].second == 0)) {
+        result[i] = std::pair(result[i].first + result[i + 1].first,
+                              result[i].second + result[i + 1].second);
+        result.erase(result.begin() + i + 1);
+        i--;
+      }
+    }
+
+    for (size_t i = 0; i < result.size() - 1; i++) {
+      if ((result[i].first == 0 && result[i + 1].second == 0) ||
+          (result[i].second == 0 && result[i + 1].first == 0)) {
+        int64_t a = result[i].first + result[i + 1].first;
+        int64_t b = result[i].second + result[i + 1].second;
+        if (a >= 5 || b >= 5) {
+          result[i] = {(a + 1) / 2, 0};
+          result[i + 1] = {0, (b + 1) / 2};
+          result.insert(result.begin() + static_cast<int64_t>(i + 2),
+                        {a / 2, 0});
+          result.insert(result.begin() + static_cast<int64_t>(i + 3),
+                        {0, b / 2});
+          i += 3;
         }
+      }
+    }
+
+    for (size_t i = 0; i < result.size() - 1; i++) {
+      if ((result[i].first == 0 && result[i + 1].second == 0) ||
+          (result[i].second == 0 && result[i + 1].first == 0)) {
+        int64_t a = result[i].first + result[i + 1].first;
+        int64_t b = result[i].second + result[i + 1].second;
+        if (a >= 5 || b >= 5) {
+          result[i] = {(a + 1) / 2, 0};
+          result[i + 1] = {0, (b + 1) / 2};
+          result.insert(result.begin() + static_cast<int64_t>(i + 2),
+                        {a / 2, 0});
+          result.insert(result.begin() + static_cast<int64_t>(i + 3),
+                        {0, b / 2});
+          i += 3;
+        }
+      }
+    }
+
+    /*for (size_t i = 0; i < result.size(); i++) {
+      if (result[i].first > 5 || result[i].second > 5) {
+        result.insert(result.begin() + static_cast<int64_t>(i + 1),
+    {(result[i].first + 1) / 2, (result[i].second + 1) / 2}); result[i] =
+    {result[i].first / 2, result[i].second / 2}; i++;
+      }
+    }
+
+    for (size_t i = 0; i < result.size(); i++) {
+      if (result[i].first > 5 || result[i].second > 5) {
+        result.insert(result.begin() + static_cast<int64_t>(i + 1),
+    {(result[i].first + 1) / 2, (result[i].second + 1) / 2}); result[i] =
+    {result[i].first / 2, result[i].second / 2}; i++;
+      }
+    }
+
+    for (size_t i = 0; i < result.size(); i++) {
+      if (result[i].first > 5 || result[i].second > 5) {
+        result.insert(result.begin() + static_cast<int64_t>(i + 1),
+    {(result[i].first + 1) / 2, (result[i].second + 1) / 2}); result[i] =
+    {result[i].first / 2, result[i].second / 2}; i++;
+      }
     }*/
+
+    /*for (size_t i = 0; i < result.size() / 2; i++) {
+      result[i].second ^= result[result.size() - i].second;
+      result[result.size() - i].second ^= result[i].second;
+      result[i].second ^= result[result.size() - i].second;
+
+      result[i].first ^= result[result.size() - i].first;
+      result[result.size() - i].first ^= result[i].first;
+      result[i].first ^= result[result.size() - i].first;
+    }*/
+
+    for (size_t i = 0; i < result.size() - 1; i++) {
+      if ((result[i].first == 0 && result[i + 1].second == 0) ||
+          (result[i + 1].first == 0 && result[i].second == 0)) {
+        result[i] = std::pair(result[i].first + result[i + 1].first,
+                              result[i].second + result[i + 1].second);
+        result.erase(result.begin() + i + 1);
+        i--;
+      }
+    }
+
+    for (size_t i = 0; i < result.size(); i++) {
+      if (result[i].first == 0 && result[i].second == 0) {
+        result.erase(result.begin() + i);
+        i--;
+      }
+    }
 
     return result;
   }
@@ -360,7 +460,7 @@ private:
   std::vector<std::pair<int64_t, int64_t>> patienceDiff() {
     std::vector<std::pair<int64_t, int64_t>> result =
         patienceRecursive(0, 0, this->taskManager1->getCircuit()->getNops(),
-                       this->taskManager2->getCircuit()->getNops());
+                          this->taskManager2->getCircuit()->getNops());
 
     return result;
   }

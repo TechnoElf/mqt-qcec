@@ -55,8 +55,9 @@ public:
     dd::CVec    cexOutput2;
     std::size_t performedInstantiations = 0U;
 
-    nlohmann::json checkerResults = nlohmann::json::array();
-    std::size_t peakUniqueTableSize = 0U;
+    nlohmann::json checkerResults       = nlohmann::json::array();
+    std::size_t    maxActiveNodes       = 0U;
+    std::size_t    diffEquivalenceCount = 0U;
 
     [[nodiscard]] bool consideredEquivalent() const {
       switch (equivalence) {
