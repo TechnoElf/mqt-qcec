@@ -20,10 +20,16 @@ nox.options.sessions = ["lint", "tests"]
 
 PYTHON_ALL_VERSIONS = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
+# The following lists all the build requirements for building the package.
+# Note that this includes transitive build dependencies of package dependencies,
+# since we use `--no-build-isolation` to install the package in editable mode
+# and get better caching performance. This only concerns dependencies that are
+# not available via wheels on PyPI (i.e., only as source distributions).
 BUILD_REQUIREMENTS = [
     "scikit-build-core[pyproject]>=0.8.1",
     "setuptools_scm>=7",
     "pybind11>=2.12",
+    "wheel>=0.40",  # transitive dependency of pytest on Windows
 ]
 
 if os.environ.get("CI", None):
@@ -72,17 +78,20 @@ def _run_tests(
 @nox.session(reuse_venv=True, python=PYTHON_ALL_VERSIONS)
 def tests(session: nox.Session) -> None:
     """Run the test suite."""
+    # enable profile check when running locally or when running on Linux with Python 3.12 in CI
+    if os.environ.get("CI", None) is None or (sys.platform == "linux" and session.python == "3.12"):
+        session.env["CHECK_PROFILES"] = "1"
+
     _run_tests(session)
 
 
-@nox.session(reuse_venv=True, venv_backend="uv")
+@nox.session(reuse_venv=True, venv_backend="uv", python=PYTHON_ALL_VERSIONS)
 def minimums(session: nox.Session) -> None:
     """Test the minimum versions of dependencies."""
     _run_tests(
         session,
         install_args=["--resolution=lowest-direct"],
         run_args=["-Wdefault"],
-        extras=["qiskit", "evaluation"],
     )
     session.run("uv", "pip", "list")
 

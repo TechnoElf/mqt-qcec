@@ -2,32 +2,29 @@
 
 from __future__ import annotations
 
+import difflib
 import filecmp
+import locale
+import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING or sys.version_info < (3, 9, 0):
-    import importlib_resources as resources
-else:
-    from importlib import resources
-
-import difflib
+from typing import Any, cast
 
 import pytest
 
 from mqt import qcec
+from mqt.qcec._compat.importlib import resources
 from mqt.qcec.compilation_flow_profiles import generate_profile_name
 
 
 @pytest.fixture(params=[0, 1, 2, 3])
-def optimization_level(request: Any) -> int:
+def optimization_level(request: Any) -> int:  # noqa: ANN401
     """Fixture for optimization levels."""
     return cast(int, request.param)
 
 
 @pytest.fixture(params=[qcec.AncillaMode.NO_ANCILLA, qcec.AncillaMode.RECURSION, qcec.AncillaMode.V_CHAIN])
-def ancilla_mode(request: Any) -> qcec.AncillaMode:
+def ancilla_mode(request: Any) -> qcec.AncillaMode:  # noqa: ANN401
     """Fixture for ancilla modes."""
     return cast(qcec.AncillaMode, request.param)
 
@@ -41,8 +38,8 @@ def test_ancilla_mode_conversion(ancilla_mode: qcec.AncillaMode) -> None:
 
 
 @pytest.mark.skipif(
-    sys.version_info < (3, 11, 0) or sys.platform != "linux",
-    reason="Since this check takes quite some time, it is only executed if the current platform is Linux and the Python version is 3.11 or higher.",
+    os.environ.get("CHECK_PROFILES") is None,
+    reason="This test is only executed if the CHECK_PROFILES environment variable is set.",
 )
 def test_generated_profiles_are_still_valid(optimization_level: int, ancilla_mode: qcec.AncillaMode) -> None:
     """Test validity of generated profiles.
@@ -64,14 +61,19 @@ def test_generated_profiles_are_still_valid(optimization_level: int, ancilla_mod
             return
 
         ref_profile = path.read_text().splitlines(keepends=True)
-        gen_profile = Path(profile_name).read_text().splitlines(keepends=True)
+        gen_profile = (
+            Path(profile_name).read_text(encoding=locale.getpreferredencoding(False)).splitlines(keepends=True)
+        )
         diff = difflib.unified_diff(ref_profile, gen_profile, fromfile="reference", tofile="generated", n=0)
         num_diffs = sum(
             1
             for line in diff
             if (
-                (line.startswith("-") and not line.startswith("---"))
-                or (line.startswith("+") and not line.startswith("+++"))
+                line.find("Qiskit version") == -1
+                and (
+                    (line.startswith("-") and not line.startswith("---"))
+                    or (line.startswith("+") and not line.startswith("+++"))
+                )
             )
         )
         sys.stdout.writelines(diff)

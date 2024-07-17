@@ -8,6 +8,9 @@
 #include "CircuitOptimizer.hpp"
 #include "Definitions.hpp"
 #include "EquivalenceCriterion.hpp"
+#include "Permutation.hpp"
+#include "QuantumComputation.hpp"
+#include "ThreadSafeQueue.hpp"
 #include "checker/dd/DDAlternatingChecker.hpp"
 #include "checker/dd/DDConstructionChecker.hpp"
 #include "checker/dd/DDSimulationChecker.hpp"
@@ -15,19 +18,171 @@
 #include "checker/zx/ZXChecker.hpp"
 #include "zx/FunctionalityConstruction.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstddef>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <optional>
-#include <string>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
 
 namespace ec {
+
+// Decrement logical qubit indices in the layout that exceed logicalQubitIndex
+void decrementLogicalQubitsInLayoutAboveIndex(
+    qc::Permutation& layout, const qc::Qubit logicalQubitIndex) {
+  for (auto& [physical, logical] : layout) {
+    if (logical > logicalQubitIndex) {
+      --logical;
+    }
+  }
+}
+
+void EquivalenceCheckingManager::stripIdleQubits() {
+  auto& largerCircuit = qc1.getNqubits() > qc2.getNqubits() ? qc1 : qc2;
+  auto& smallerCircuit = qc1.getNqubits() > qc2.getNqubits() ? qc2 : qc1;
+  auto qubitDifference =
+      largerCircuit.getNqubits() - smallerCircuit.getNqubits();
+  auto largerCircuitLayoutCopy = largerCircuit.initialLayout;
+
+  // Iterate over the initialLayout of largerCircuit and remove an idle logical
+  // qubit together with the physical qubit it is mapped to
+  for (auto physicalQubitIt = largerCircuitLayoutCopy.rbegin();
+       physicalQubitIt != largerCircuitLayoutCopy.rend(); ++physicalQubitIt) {
+    const auto physicalQubitIndex = physicalQubitIt->first;
+
+    if (!largerCircuit.isIdleQubit(physicalQubitIndex)) {
+      continue;
+    }
+
+    const auto logicalQubitIndex =
+        largerCircuit.initialLayout.at(physicalQubitIndex);
+
+    bool removedFromSmallerCircuit = false;
+
+    // Remove idle logical qubit present exclusively in largerCircuit
+    if (qubitDifference > 0 &&
+        ((smallerCircuit.getNqubits() == 0) ||
+         logicalQubitIndex >
+             qc::QuantumComputation::getHighestLogicalQubitIndex(
+                 smallerCircuit.initialLayout))) {
+      const bool physicalUsedInOutputPermutation =
+          largerCircuit.outputPermutation.find(physicalQubitIndex) !=
+          largerCircuit.outputPermutation.end();
+      const bool logicalUsedInOutputPermutation =
+          std::any_of(largerCircuit.outputPermutation.begin(),
+                      largerCircuit.outputPermutation.end(),
+                      [logicalQubitIndex](const auto& pair) {
+                        return pair.second == logicalQubitIndex;
+                      });
+
+      // a qubit can only be removed if it is not used in the output permutation
+      // or if it is used in the output permutation and the logical qubit index
+      // matches the logical qubit index in the output permutation for the
+      // physical qubit index in question, which indicates that nothing has
+      // happened to the qubit in the larger circuit.
+      const bool safeToRemoveInLargerCircuit =
+          (!physicalUsedInOutputPermutation &&
+           !logicalUsedInOutputPermutation) ||
+          (physicalUsedInOutputPermutation &&
+           largerCircuit.outputPermutation.at(physicalQubitIndex) ==
+               logicalQubitIndex);
+      if (!safeToRemoveInLargerCircuit) {
+        continue;
+      }
+      largerCircuit.removeQubit(logicalQubitIndex);
+      --qubitDifference;
+
+    } else {
+      // Remove logical qubit that is idle in both circuits
+
+      // find the corresponding logical qubit in the smaller circuit
+      const auto it = std::find_if(smallerCircuit.initialLayout.begin(),
+                                   smallerCircuit.initialLayout.end(),
+                                   [logicalQubitIndex](const auto& pair) {
+                                     return pair.second == logicalQubitIndex;
+                                   });
+      // the logical qubit has to be present in the smaller circuit, otherwise
+      // this would indicate a bug in the circuit IO initialization.
+      assert(it != smallerCircuit.initialLayout.end());
+      const auto physicalSmaller = it->first;
+
+      // if the qubit is not idle in the second circuit, it cannot be removed
+      // from either circuit.
+      if (!smallerCircuit.isIdleQubit(physicalSmaller)) {
+        continue;
+      }
+
+      const bool physicalLargerUsedInOutputPermutation =
+          (largerCircuit.outputPermutation.find(physicalQubitIndex) !=
+           largerCircuit.outputPermutation.end());
+
+      const bool logicalLargerUsedInOutputPermutation =
+          std::any_of(largerCircuit.outputPermutation.begin(),
+                      largerCircuit.outputPermutation.end(),
+                      [logicalQubitIndex](const auto& pair) {
+                        return pair.second == logicalQubitIndex;
+                      });
+
+      const bool safeToRemoveInLargerCircuit =
+          (!physicalLargerUsedInOutputPermutation &&
+           !logicalLargerUsedInOutputPermutation) ||
+          (physicalLargerUsedInOutputPermutation &&
+           largerCircuit.outputPermutation.at(physicalQubitIndex) ==
+               logicalQubitIndex);
+      if (!safeToRemoveInLargerCircuit) {
+        continue;
+      }
+
+      const bool physicalSmallerUsedInOutputPermutation =
+          (smallerCircuit.outputPermutation.find(physicalSmaller) !=
+           smallerCircuit.outputPermutation.end());
+
+      const bool logicalSmallerUsedInOutputPermutation =
+          std::any_of(smallerCircuit.outputPermutation.begin(),
+                      smallerCircuit.outputPermutation.end(),
+                      [logicalQubitIndex](const auto& pair) {
+                        return pair.second == logicalQubitIndex;
+                      });
+
+      const bool safeToRemoveInSmallerCircuit =
+          (!physicalSmallerUsedInOutputPermutation &&
+           !logicalSmallerUsedInOutputPermutation) ||
+          (physicalSmallerUsedInOutputPermutation &&
+           smallerCircuit.outputPermutation.at(physicalSmaller) ==
+               logicalQubitIndex);
+      if (!safeToRemoveInSmallerCircuit) {
+        continue;
+      }
+
+      // only remove the qubit from both circuits if it is safe to do so in both
+      // circuits (i.e., the qubit is not used in the output permutation or if
+      // it is used, the logical qubit index matches the logical qubit index in
+      // the output permutation for the physical qubit index in question).
+      largerCircuit.removeQubit(logicalQubitIndex);
+      smallerCircuit.removeQubit(logicalQubitIndex);
+      removedFromSmallerCircuit = true;
+    }
+    decrementLogicalQubitsInLayoutAboveIndex(largerCircuit.initialLayout,
+                                             logicalQubitIndex);
+    decrementLogicalQubitsInLayoutAboveIndex(largerCircuit.outputPermutation,
+                                             logicalQubitIndex);
+    if (removedFromSmallerCircuit) {
+      decrementLogicalQubitsInLayoutAboveIndex(smallerCircuit.initialLayout,
+                                               logicalQubitIndex);
+      decrementLogicalQubitsInLayoutAboveIndex(smallerCircuit.outputPermutation,
+                                               logicalQubitIndex);
+    }
+  }
+}
+
 void EquivalenceCheckingManager::setupAncillariesAndGarbage() {
   auto& largerCircuit =
       qc1.getNqubits() > qc2.getNqubits() ? this->qc1 : this->qc2;
@@ -39,7 +194,7 @@ void EquivalenceCheckingManager::setupAncillariesAndGarbage() {
   std::vector<std::pair<qc::Qubit, std::optional<qc::Qubit>>> removed{};
   removed.reserve(qubitDifference);
 
-  const auto        nqubits = largerCircuit.getNqubits();
+  const auto nqubits = largerCircuit.getNqubits();
   std::vector<bool> garbage(nqubits);
 
   for (std::size_t i = 0; i < qubitDifference; ++i) {
@@ -67,45 +222,6 @@ void EquivalenceCheckingManager::setupAncillariesAndGarbage() {
     // also set the appropriate qubits in the smaller circuit as garbage
     smallerCircuit.setLogicalQubitGarbage(
         static_cast<qc::Qubit>(largerCircuit.getNqubits() - 1));
-  }
-}
-
-void EquivalenceCheckingManager::fixOutputPermutationMismatch() {
-  // Try to fix potential mismatches in output permutations
-  auto& smallerCircuit = qc1.getNqubits() > qc2.getNqubits() ? qc2 : qc1;
-  auto& largerCircuit  = qc1.getNqubits() > qc2.getNqubits() ? qc1 : qc2;
-
-  auto& smallerGarbage = smallerCircuit.garbage;
-
-  const auto& largerOutput  = largerCircuit.outputPermutation;
-  auto&       largerGarbage = largerCircuit.garbage;
-
-  for (const auto& [lPhysical, lLogical] : largerOutput) {
-    const qc::Qubit outputQubitInLargerCircuit = lLogical;
-    qc::Qubit       nout                       = 1;
-    for (qc::Qubit i = 0; i < outputQubitInLargerCircuit; ++i) {
-      if (!largerGarbage[i]) {
-        ++nout;
-      }
-    }
-
-    bool       existsInSmaller = false;
-    const auto nqubits         = smallerCircuit.getNqubits();
-    for (std::size_t i = 0U; i < nqubits; ++i) {
-      if (!smallerGarbage[i]) {
-        --nout;
-      }
-      if (nout == 0) {
-        existsInSmaller = true;
-        break;
-      }
-    }
-    // algorithm has logical qubit that does not exist in the smaller circuit
-    if (!existsInSmaller) {
-      continue;
-    }
-
-    std::cerr << "Uncorrected mismatch in output qubits!\n";
   }
 }
 
@@ -181,12 +297,16 @@ void EquivalenceCheckingManager::runOptimizationPasses() {
 void EquivalenceCheckingManager::run() {
   done = false;
 
-  results.name1      = qc1.getName();
-  results.name2      = qc2.getName();
+  results.name1 = qc1.getName();
+  results.name2 = qc2.getName();
   results.numQubits1 = qc1.getNqubits();
   results.numQubits2 = qc2.getNqubits();
-  results.numGates1  = qc1.getNops();
-  results.numGates2  = qc2.getNops();
+  results.numMeasuredQubits1 = qc1.getNmeasuredQubits();
+  results.numMeasuredQubits2 = qc2.getNmeasuredQubits();
+  results.numAncillae1 = qc1.getNancillae();
+  results.numAncillae2 = qc2.getNancillae();
+  results.numGates1 = qc1.getNops();
+  results.numGates2 = qc2.getNops();
 
   results.configuration = configuration;
 
@@ -202,7 +322,7 @@ void EquivalenceCheckingManager::run() {
 
   if (qc1.empty() && qc2.empty()) {
     results.equivalence = EquivalenceCriterion::Equivalent;
-    done                = true;
+    done = true;
     return;
   }
 
@@ -219,7 +339,7 @@ void EquivalenceCheckingManager::run() {
   }
 
   for (const auto& checker : checkers) {
-    nlohmann::json j{};
+    nlohmann::basic_json j{};
     checker->json(j);
     results.checkerResults.emplace_back(j);
   }
@@ -252,8 +372,7 @@ EquivalenceCheckingManager::EquivalenceCheckingManager(
   }
 
   // strip away qubits that are not acted upon
-  this->qc1.stripIdleQubits();
-  this->qc2.stripIdleQubits();
+  stripIdleQubits();
 
   // given that one circuit has more qubits than the other, the difference is
   // assumed to arise from ancillary qubits. adjust both circuits accordingly
@@ -265,18 +384,13 @@ EquivalenceCheckingManager::EquivalenceCheckingManager(
                  "inputs! Proceed with caution!\n";
   }
 
-  // try to fix a potential mismatch in the output permutations of both circuits
-  if (configuration.optimizations.fixOutputPermutationMismatch) {
-    fixOutputPermutationMismatch();
-  }
-
   // check whether the alternating checker is configured and can handle the
   // circuits
   if (configuration.execution.runAlternatingChecker &&
       !DDAlternatingChecker::canHandle(this->qc1, this->qc2)) {
     std::clog << "[QCEC] Warning: alternating checker cannot handle the "
                  "circuits. Falling back to construction checker.\n";
-    this->configuration.execution.runAlternatingChecker  = false;
+    this->configuration.execution.runAlternatingChecker = false;
     this->configuration.execution.runConstructionChecker = true;
   }
 
@@ -287,7 +401,7 @@ EquivalenceCheckingManager::EquivalenceCheckingManager(
   // number of unique computational basis states
   if (configuration.execution.runSimulationChecker &&
       configuration.simulation.stateType == StateType::ComputationalBasis) {
-    const auto        nq           = this->qc1.getNqubitsWithoutAncillae();
+    const auto nq = this->qc1.getNqubitsWithoutAncillae();
     const std::size_t uniqueStates = 1ULL << nq;
     if (nq <= 63U && configuration.simulation.maxSims > uniqueStates) {
       this->configuration.simulation.maxSims = uniqueStates;
@@ -309,7 +423,7 @@ void EquivalenceCheckingManager::checkSequential() {
     timeoutThread = std::thread([this, timeout = std::chrono::duration<double>(
                                            configuration.execution.timeout)] {
       std::unique_lock doneLock(doneMutex);
-      const auto       finished =
+      const auto finished =
           doneCond.wait_for(doneLock, timeout, [this] { return done; });
       // if the thread has already finished within the timeout, nothing
       // has to be done
@@ -469,7 +583,7 @@ void EquivalenceCheckingManager::checkSequential() {
     }
   }
 
-  const auto end    = std::chrono::steady_clock::now();
+  const auto end = std::chrono::steady_clock::now();
   results.checkTime = std::chrono::duration<double>(end - start).count();
 
   // appropriately join the timeout thread, if it was launched
@@ -534,7 +648,7 @@ void EquivalenceCheckingManager::checkParallel() {
 
   // create a thread safe queue which is used to check for available results
   ThreadSafeQueue<std::size_t> queue{};
-  std::size_t                  id = 0U;
+  std::size_t id = 0U;
 
   // reserve space for the futures received from the async calls
   std::vector<std::future<void>> futures{};
@@ -593,7 +707,7 @@ void EquivalenceCheckingManager::checkParallel() {
 
     // in case non-equivalence has been shown, the execution can be stopped
     const auto* const checker = checkers.at(*completedID).get();
-    const auto        result  = checker->getEquivalence();
+    const auto result = checker->getEquivalence();
 
     if (result == EquivalenceCriterion::NoInformation) {
       if (dynamic_cast<const ZXEquivalenceChecker*>(checker) != nullptr) {
@@ -732,7 +846,7 @@ void EquivalenceCheckingManager::checkParallel() {
     }
   }
 
-  const auto end    = std::chrono::steady_clock::now();
+  const auto end = std::chrono::steady_clock::now();
   results.checkTime = std::chrono::duration<double>(end - start).count();
 
   // Futures are not explicitly waited for here, since the destructor of the
@@ -753,7 +867,7 @@ void EquivalenceCheckingManager::checkSymbolic() {
     timeoutThread = std::thread([this, timeout = std::chrono::duration<double>(
                                            configuration.execution.timeout)] {
       std::unique_lock doneLock(doneMutex);
-      auto             finished =
+      auto finished =
           doneCond.wait_for(doneLock, timeout, [this] { return done; });
       // if the thread has already finished within the timeout,
       // nothing has to be done
@@ -770,33 +884,26 @@ void EquivalenceCheckingManager::checkSymbolic() {
           std::make_unique<ZXEquivalenceChecker>(qc1, qc2, configuration));
       const auto& zxChecker = checkers.back();
       if (!done) {
-        const auto result   = zxChecker->run();
+        const auto result = zxChecker->run();
         results.equivalence = result;
-        done                = true;
+        done = true;
         doneCond.notify_one();
       }
     } else {
       std::clog << "Checking symbolic circuits requires transformation "
                    "to ZX-diagram but one of the circuits contains "
                    "operations not supported by this checker! Exiting!"
-                << std::endl;
+                << '\n';
       checkers.clear();
       results.equivalence = EquivalenceCriterion::NoInformation;
       return;
     }
   }
-  const auto end    = std::chrono::steady_clock::now();
+  const auto end = std::chrono::steady_clock::now();
   results.checkTime = std::chrono::duration<double>(end - start).count();
   // appropriately join the timeout thread, if it was launched
   if (timeoutThread.joinable()) {
     timeoutThread.join();
-  }
-}
-
-void EquivalenceCheckingManager::runFixOutputPermutationMismatch() {
-  if (!configuration.optimizations.fixOutputPermutationMismatch) {
-    fixOutputPermutationMismatch();
-    configuration.optimizations.fixOutputPermutationMismatch = true;
   }
 }
 
@@ -843,25 +950,25 @@ void EquivalenceCheckingManager::elidePermutations() {
 nlohmann::json EquivalenceCheckingManager::Results::json() const {
   nlohmann::json res{};
 
-  auto& circuit1         = res["circuit1"];
-  circuit1["name"]       = name1;
+  auto& circuit1 = res["circuit1"];
+  circuit1["name"] = name1;
   circuit1["num_qubits"] = numQubits1;
-  circuit1["num_gates"]  = numGates1;
+  circuit1["num_gates"] = numGates1;
 
-  auto& circuit2         = res["circuit2"];
-  circuit2["name"]       = name2;
+  auto& circuit2 = res["circuit2"];
+  circuit2["name"] = name2;
   circuit2["num_qubits"] = numQubits2;
-  circuit2["num_gates"]  = numGates2;
+  circuit2["num_gates"] = numGates2;
 
   res["configuration"] = configuration.json();
 
   res["preprocessing_time"] = preprocessingTime;
-  res["check_time"]         = checkTime;
-  res["equivalence"]        = ec::toString(equivalence);
+  res["check_time"] = checkTime;
+  res["equivalence"] = ec::toString(equivalence);
 
   if (startedSimulations > 0) {
-    auto& sim        = res["simulations"];
-    sim["started"]   = startedSimulations;
+    auto& sim = res["simulations"];
+    sim["started"] = startedSimulations;
     sim["performed"] = performedSimulations;
 
     if (!cexInput.empty() || !cexOutput1.empty() || !cexOutput2.empty()) {
@@ -877,7 +984,7 @@ nlohmann::json EquivalenceCheckingManager::Results::json() const {
       }
     }
   }
-  auto& par                       = res["parameterized"];
+  auto& par = res["parameterized"];
   par["performed_instantiations"] = performedInstantiations;
 
   res["checkers"] = checkerResults;

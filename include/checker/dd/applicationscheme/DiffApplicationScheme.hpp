@@ -374,44 +374,40 @@ private:
           (result[i].second == 0 && result[i + 1].first == 0)) {
         int64_t a = result[i].first + result[i + 1].first;
         int64_t b = result[i].second + result[i + 1].second;
-        if (a >= 5 || b >= 5) {
-          result[i] = {(a + 1) / 2, 0};
-          result[i + 1] = {0, (b + 1) / 2};
-          result.insert(result.begin() + static_cast<int64_t>(i + 2),
-                        {a / 2, 0});
-          result.insert(result.begin() + static_cast<int64_t>(i + 3),
-                        {0, b / 2});
-          i += 3;
-        }
-      }
-    }
+        if (a > 1 && b > 1) {
+          int64_t max = std::max(a, b);
+          result[i] = {a % max, 0};
+          result[i + 1] = {0, b % max};
 
-    for (size_t i = 0; i < result.size() - 1; i++) {
-      if ((result[i].first == 0 && result[i + 1].second == 0) ||
-          (result[i].second == 0 && result[i + 1].first == 0)) {
-        int64_t a = result[i].first + result[i + 1].first;
-        int64_t b = result[i].second + result[i + 1].second;
-        if (a >= 5 || b >= 5) {
-          result[i] = {(a + 1) / 2, 0};
-          result[i + 1] = {0, (b + 1) / 2};
-          result.insert(result.begin() + static_cast<int64_t>(i + 2),
-                        {a / 2, 0});
-          result.insert(result.begin() + static_cast<int64_t>(i + 3),
-                        {0, b / 2});
-          i += 3;
-        }
-      }
-    }
+          for (size_t j = 0; j < max; j++) {
+            result.insert(result.begin() + static_cast<int64_t>(i + 2 + 2 * j),
+                          {a / max, 0});
+            result.insert(result.begin() + static_cast<int64_t>(i + 3 + 2 * j),
+                          {0, b / max});
+          }
 
-    /*for (size_t i = 0; i < result.size(); i++) {
-      if (result[i].first > 5 || result[i].second > 5) {
-        result.insert(result.begin() + static_cast<int64_t>(i + 1),
-    {(result[i].first + 1) / 2, (result[i].second + 1) / 2}); result[i] =
-    {result[i].first / 2, result[i].second / 2}; i++;
+          i += 1 + 2 * static_cast<size_t>(max - 1);
+        }
       }
     }
 
     for (size_t i = 0; i < result.size(); i++) {
+      int64_t a = result[i].first;
+      int64_t b = result[i].second;
+      if (a > 1 && b > 1) {
+        int64_t max = std::max(a, b);
+        result[i] = {a % max, b % max};
+
+        for (size_t j = 0; j < max; j++) {
+          result.insert(result.begin() + static_cast<int64_t>(i + 1 + j),
+                        {a / max, b / max});
+        }
+
+        i += 1 + static_cast<size_t>(max - 1);
+      }
+    }
+
+    /*for (size_t i = 0; i < result.size(); i++) {
       if (result[i].first > 5 || result[i].second > 5) {
         result.insert(result.begin() + static_cast<int64_t>(i + 1),
     {(result[i].first + 1) / 2, (result[i].second + 1) / 2}); result[i] =
@@ -439,7 +435,9 @@ private:
 
     for (size_t i = 0; i < result.size() - 1; i++) {
       if ((result[i].first == 0 && result[i + 1].second == 0) ||
-          (result[i + 1].first == 0 && result[i].second == 0)) {
+          (result[i].second == 0 && result[i + 1].first == 0) ||
+          (result[i].first == 0 && result[i + 1].first == 0) ||
+          (result[i].second == 0 && result[i + 1].second == 0)) {
         result[i] = std::pair(result[i].first + result[i + 1].first,
                               result[i].second + result[i + 1].second);
         result.erase(result.begin() + i + 1);
